@@ -21,7 +21,7 @@ pi -e npm:@romansix/pi-tmux
 Provides a `tmux` tool for the agent with these actions:
 
 - **run** — Run commands in new tmux windows. Each command gets its own window. When a command finishes, the agent is automatically notified with the exit code and recent output.
-- **attach** — Open an iTerm2 tab attached to the session.
+- **attach** — Open a new terminal tab/window attached to the session. Supports iTerm2, Terminal.app, kitty, ghostty, WezTerm, and tmux nesting. Falls back to printing the attach command for unsupported terminals.
 - **peek** — Capture recent output from tmux windows.
 - **list** — List all windows in the session.
 - **kill** — Kill the entire session.
@@ -30,7 +30,7 @@ Each command's script is echoed before execution (`cat "$0"`) so you can see exa
 
 ### Commands
 
-- `/tmux` — Open an iTerm2 tab attached to the project's tmux session
+- `/tmux` — Open a terminal tab attached to the project's tmux session
 - `/tmux:cat` — Select a tmux window and bring its output into the conversation
 
 ## Credits
