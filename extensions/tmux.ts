@@ -20,7 +20,7 @@ import { join } from "node:path";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 
 
-const SIGNAL_DIR = "/tmp/pi-tmux";
+const SIGNAL_BASE = "/tmp/pi-tmux";
 
 const TmuxParams = Type.Object({
   action: StringEnum(["run", "attach", "peek", "kill", "list"] as const),
@@ -165,18 +165,17 @@ function attachToSession(cwd: string): string {
   }
 }
 
-const SCRIPT_DIR = join(SIGNAL_DIR, "s");
-
 /**
  * Write a per-window script that echoes itself before executing.
  * cat "$0" prints the full script (including heredocs etc. that set -x misses),
  * then a separator, then the actual command runs.
  */
-function sendCommandWithSignal(session: string, windowIndex: number, cmd: string): void {
-  mkdirSync(SCRIPT_DIR, { recursive: true });
+function sendCommandWithSignal(signalDir: string, session: string, windowIndex: number, cmd: string): void {
+  const scriptDir = join(signalDir, "s");
+  mkdirSync(scriptDir, { recursive: true });
   const id = randomBytes(4).toString("hex");
-  const signalFile = join(SIGNAL_DIR, `${session}.${windowIndex}.${id}`);
-  const scriptPath = join(SCRIPT_DIR, `${session}.${windowIndex}.${id}.sh`);
+  const signalFile = join(signalDir, `${session}.${windowIndex}.${id}`);
+  const scriptPath = join(scriptDir, `${session}.${windowIndex}.${id}.sh`);
   writeFileSync(scriptPath, `#!/usr/bin/env bash
 cat "$0"
 echo '---'
@@ -187,13 +186,13 @@ echo $__rc > "${signalFile}"
   exec(`tmux send-keys -t ${session}:${windowIndex} "${escapeForTmux(scriptPath)}" C-m`);
 }
 
-function addWindow(session: string, gitRoot: string, cmd: string, name?: string): number {
+function addWindow(signalDir: string, session: string, gitRoot: string, cmd: string, name?: string): number {
   const winName = (name ?? cmd.split(/[|;&\s]/)[0].split("/").pop() ?? "shell").slice(0, 30);
   const raw = exec(
     `tmux new-window -t ${session} -n "${escapeForTmux(winName)}" -c "${gitRoot}" -P -F "#{window_index}"`
   );
   const idx = parseInt(raw);
-  sendCommandWithSignal(session, idx, cmd);
+  sendCommandWithSignal(signalDir, session, idx, cmd);
   return idx;
 }
 
@@ -202,8 +201,27 @@ function escapeForTmux(s: string): string {
 }
 
 export default function (pi: ExtensionAPI) {
-  // Ensure signal directory exists
-  mkdirSync(SIGNAL_DIR, { recursive: true });
+  // Each pi instance gets its own signal directory to avoid cross-talk.
+  // Resolved lazily on first use (needs session_start to have fired).
+  let SIGNAL_DIR: string | null = null;
+
+  function getSignalDir(): string {
+    if (!SIGNAL_DIR) {
+      // Shouldn't happen — run is called after session_start
+      SIGNAL_DIR = join(SIGNAL_BASE, randomBytes(8).toString("hex"));
+      mkdirSync(SIGNAL_DIR, { recursive: true });
+    }
+    return SIGNAL_DIR;
+  }
+
+  pi.on("session_start", async (_event, ctx) => {
+    const sessionFile = ctx.sessionManager.getSessionFile();
+    const id = sessionFile
+      ? createHash("md5").update(sessionFile).digest("hex").slice(0, 16)
+      : randomBytes(8).toString("hex");
+    SIGNAL_DIR = join(SIGNAL_BASE, id);
+    mkdirSync(SIGNAL_DIR, { recursive: true });
+  });
 
   // Track watcher for cleanup
   let watcher: FSWatcher | null = null;
@@ -211,11 +229,12 @@ export default function (pi: ExtensionAPI) {
   function startWatching() {
     if (watcher) return;
 
-    watcher = chokidarWatch(SIGNAL_DIR, {
+    const dir = getSignalDir();
+    watcher = chokidarWatch(dir, {
       ignoreInitial: true,
       depth: 0,
       // Ignore script subdirectory and .sh files
-      ignored: [join(SIGNAL_DIR, "s"), /\.sh$/],
+      ignored: [join(dir, "s"), /\.sh$/],
       // Small stabilization delay for atomic writes
       awaitWriteFinish: { stabilityThreshold: 100, pollInterval: 50 },
     });
@@ -266,6 +285,10 @@ export default function (pi: ExtensionAPI) {
     if (watcher) {
       await watcher.close();
       watcher = null;
+    }
+    // Remove this instance's signal directory
+    if (SIGNAL_DIR) {
+      try { execSync(`rm -rf "${SIGNAL_DIR}"`, { timeout: 5000 }); } catch {}
     }
   });
 
@@ -362,6 +385,7 @@ The user can also type /tmux to attach in a new terminal tab, or /tmux:cat to se
           // Start watching for completions
           startWatching();
 
+          const signalDir = getSignalDir();
           const exists = sessionExists(session);
           const indices: number[] = [];
           const names = params.names ?? [];
@@ -369,16 +393,16 @@ The user can also type /tmux to attach in a new terminal tab, or /tmux:cat to se
           if (!exists) {
             const firstName = (names[0] ?? params.commands[0].split(/[|;&\s]/)[0].split("/").pop() ?? "shell").slice(0, 30);
             exec(`tmux new-session -d -s ${session} -n "${escapeForTmux(firstName)}" -c "${gitRoot}"`);
-            sendCommandWithSignal(session, 0, params.commands[0]);
+            sendCommandWithSignal(signalDir, session, 0, params.commands[0]);
             indices.push(0);
 
             for (let i = 1; i < params.commands.length; i++) {
-              const idx = addWindow(session, gitRoot, params.commands[i], names[i]);
+              const idx = addWindow(signalDir, session, gitRoot, params.commands[i], names[i]);
               indices.push(idx);
             }
           } else {
             for (let i = 0; i < params.commands.length; i++) {
-              const idx = addWindow(session, gitRoot, params.commands[i], names[i]);
+              const idx = addWindow(signalDir, session, gitRoot, params.commands[i], names[i]);
               indices.push(idx);
             }
           }
