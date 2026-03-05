@@ -20,7 +20,7 @@ pi -e npm:@romansix/pi-tmux
 
 Provides a `tmux` tool for the agent with these actions:
 
-- **run** — Run commands in new tmux windows. Each command gets its own window. When a command finishes, the agent is automatically notified with the exit code and recent output, so it doesn't need to wait around.
+- **run** — Run a command in a new tmux window. When the command finishes, the agent is automatically notified with the exit code and recent output, so it doesn't need to wait around. Supports optional silence detection (`silenceTimeout`) to get notified when a command may be waiting for input, with configurable backoff (`silenceBackoffFactor`, `silenceBackoffCap`).
 - **attach** — Open a new terminal tab/window attached to the session. Supports iTerm2, Terminal.app, kitty, ghostty, WezTerm, and tmux nesting. Falls back to printing the attach command for unsupported terminals.
 - **peek** — Capture recent output from tmux windows.
 - **list** — List all windows in the session.

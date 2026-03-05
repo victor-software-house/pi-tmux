@@ -457,6 +457,7 @@ The user can also type /tmux to attach in a new terminal tab, or /tmux:cat to se
     promptGuidelines: [
       "Prefer tmux over bash for long-running or background commands: dev servers, file watchers, build processes, test suites, anything that runs continuously or takes more than a few seconds. Use bash for quick one-shot commands that complete immediately (ls, cat, grep, git status, etc.).",
       "After using tmux 'run', you do not need to poll or wait to find out when a command finishes. The session will automatically notify you with the exit code and recent output when the command completes — just move on to other work. You can still peek at any time to check intermediate output from a running process.",
+      "For commands that might prompt for input (installers, interactive tools, confirmations), use silenceTimeout to get notified when the command goes quiet. Defaults: 60s initial, 1.5x backoff factor, 5min cap.",
     ],
     parameters: TmuxParams,
 
