@@ -24,14 +24,14 @@ const SIGNAL_BASE = "/tmp/pi-tmux";
 
 const TmuxParams = Type.Object({
   action: StringEnum(["run", "attach", "peek", "kill", "list"] as const),
-  commands: Type.Optional(
-    Type.Array(Type.String(), {
-      description: "Commands to run (for 'run' action). Each gets its own tmux window.",
+  command: Type.Optional(
+    Type.String({
+      description: "Command to run (for 'run' action).",
     })
   ),
-  names: Type.Optional(
-    Type.Array(Type.String(), {
-      description: "Short descriptive names for each window (for 'run' action). Must match length of commands. E.g. ['dev-server', 'tests', 'db'].",
+  name: Type.Optional(
+    Type.String({
+      description: "Short descriptive name for the tmux window (for 'run' action). E.g. 'dev-server'.",
     })
   ),
   window: Type.Optional(
@@ -348,7 +348,7 @@ export default function (pi: ExtensionAPI) {
 WHEN TO USE: Prefer this over bash for long-running or background commands: dev servers, file watchers, build processes, test suites, anything that runs continuously or takes more than a few seconds. Use bash for quick one-shot commands that complete immediately (ls, cat, grep, git status, etc.).
 
 Actions:
-- run: Run commands in new tmux windows. Each command gets its own window. If the session already exists, new windows are added to it. When a command finishes, the agent is automatically notified with the exit code and recent output.
+- run: Run a command in a new tmux window. If the session already exists, a new window is added to it. When the command finishes, the agent is automatically notified with the exit code and recent output.
 - attach: Open a new terminal tab attached to the session (for the user to interact with). Supports iTerm2, Terminal.app, kitty, ghostty, WezTerm, and tmux nesting.
 - peek: Capture recent output from tmux windows. Use window param to target a specific window, or omit for all. Use this to check on running processes.
 - list: List all windows in the session.
@@ -375,9 +375,9 @@ The user can also type /tmux to attach in a new terminal tab, or /tmux:cat to se
 
       switch (params.action) {
         case "run": {
-          if (!params.commands || params.commands.length === 0) {
+          if (!params.command) {
             return {
-              content: [{ type: "text", text: "Error: 'commands' required for run action." }],
+              content: [{ type: "text", text: "Error: 'command' required for run action." }],
               isError: true,
             };
           }
@@ -387,37 +387,26 @@ The user can also type /tmux to attach in a new terminal tab, or /tmux:cat to se
 
           const signalDir = getSignalDir();
           const exists = sessionExists(session);
-          const indices: number[] = [];
-          const names = params.names ?? [];
+          let windowIndex: number;
 
           if (!exists) {
-            const firstName = (names[0] ?? params.commands[0].split(/[|;&\s]/)[0].split("/").pop() ?? "shell").slice(0, 30);
-            exec(`tmux new-session -d -s ${session} -n "${escapeForTmux(firstName)}" -c "${gitRoot}"`);
-            sendCommandWithSignal(signalDir, session, 0, params.commands[0]);
-            indices.push(0);
-
-            for (let i = 1; i < params.commands.length; i++) {
-              const idx = addWindow(signalDir, session, gitRoot, params.commands[i], names[i]);
-              indices.push(idx);
-            }
+            const winName = (params.name ?? params.command.split(/[|;&\s]/)[0].split("/").pop() ?? "shell").slice(0, 30);
+            exec(`tmux new-session -d -s ${session} -n "${escapeForTmux(winName)}" -c "${gitRoot}"`);
+            sendCommandWithSignal(signalDir, session, 0, params.command);
+            windowIndex = 0;
           } else {
-            for (let i = 0; i < params.commands.length; i++) {
-              const idx = addWindow(signalDir, session, gitRoot, params.commands[i], names[i]);
-              indices.push(idx);
-            }
+            windowIndex = addWindow(signalDir, session, gitRoot, params.command, params.name);
           }
 
-          const lines = params.commands.map(
-            (cmd, i) => `  :${indices[i]}  ${names[i] ? names[i] + ": " : ""}${cmd}`
-          );
+          const label = params.name ? `${params.name}: ` : "";
           return {
             content: [
               {
                 type: "text",
-                text: `${exists ? "Added to" : "Created"} session ${session}\n${lines.join("\n")}`,
+                text: `${exists ? "Added to" : "Created"} session ${session}\n  :${windowIndex}  ${label}${params.command}`,
               },
             ],
-            details: { session, existed: exists, windowIndices: indices },
+            details: { session, existed: exists, windowIndex },
           };
         }
 
@@ -511,12 +500,9 @@ The user can also type /tmux to attach in a new terminal tab, or /tmux:cat to se
       let text = theme.fg("toolTitle", theme.bold("tmux "));
       text += theme.fg("accent", action);
 
-      if (action === "run" && Array.isArray(args.commands)) {
-        const names = Array.isArray(args.names) ? args.names : [];
-        for (let i = 0; i < args.commands.length; i++) {
-          const label = names[i] ? theme.fg("text", names[i] + ": ") : "";
-          text += "\n  " + label + theme.fg("muted", args.commands[i]);
-        }
+      if (action === "run" && args.command) {
+        const label = args.name ? theme.fg("text", args.name + ": ") : "";
+        text += "\n  " + label + theme.fg("muted", args.command);
       } else if (action === "peek" && args.window !== undefined) {
         text += theme.fg("muted", ` :${args.window}`);
       }
