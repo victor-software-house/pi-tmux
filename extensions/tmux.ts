@@ -437,6 +437,47 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // /tmux:clear — kill windows where the command has finished (shell is idle)
+  pi.registerCommand("tmux:clear", {
+    description: "Kill tmux windows where the command has finished (idle shells)",
+    handler: async (_args, ctx) => {
+      const gitRoot = getGitRoot(ctx.cwd);
+      if (!gitRoot) { ctx.ui.notify("Not in a git repository.", "error"); return; }
+
+      const session = sessionName(gitRoot);
+      if (!sessionExists(session)) { ctx.ui.notify("No tmux session for this project.", "error"); return; }
+
+      const shells = new Set(["bash", "zsh", "sh", "fish", "dash"]);
+      const raw = execSafe(
+        `tmux list-windows -t ${session} -F "#{window_index}|||#{window_name}|||#{pane_current_command}"`
+      );
+      if (!raw) { ctx.ui.notify("No windows in session.", "error"); return; }
+
+      const idle = raw.split("\n")
+        .map((line) => {
+          const [idx, name, cmd] = line.split("|||");
+          return { index: parseInt(idx), name, cmd };
+        })
+        .filter((w) => shells.has(w.cmd));
+
+      if (idle.length === 0) {
+        ctx.ui.notify("No idle windows to clear.", "info");
+        return;
+      }
+
+      for (const w of idle) {
+        execSafe(`tmux kill-window -t ${session}:${w.index}`);
+      }
+
+      // Kill session if no windows remain
+      if (!sessionExists(session)) {
+        ctx.ui.notify(`Cleared ${idle.length} idle window(s) — session closed.`, "info");
+      } else {
+        ctx.ui.notify(`Cleared ${idle.length} idle window(s).`, "info");
+      }
+    },
+  });
+
   // tmux tool — for the agent
   pi.registerTool({
     name: "tmux",
