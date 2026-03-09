@@ -492,7 +492,7 @@ Actions:
 - peek: Capture recent output from tmux windows. Use window param to target a specific window, or omit for all. Use this to check on running processes.
 - list: List all windows in the session.
 - kill: Kill the entire session.
-- mute: Suppress silence notifications for a window (requires window index). Use when a command is intentionally slow, not waiting for input.
+- mute: Suppress silence notifications for a window (requires window index). Use when a command is expected to have long silence periods, not waiting for input.
 
 The user can also type /tmux to attach in a new terminal tab, or /tmux:cat to select a window and bring its output into the conversation.`,
     promptSnippet: "Manage a tmux session for the current project (one session per git root). Prefer this over bash for long-running or background commands.",
