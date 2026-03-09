@@ -449,16 +449,21 @@ export default function (pi: ExtensionAPI) {
 
       const shells = new Set(["bash", "zsh", "sh", "fish", "dash"]);
       const raw = execSafe(
-        `tmux list-windows -t ${session} -F "#{window_index}|||#{window_name}|||#{pane_current_command}"`
+        `tmux list-windows -t ${session} -F "#{window_index}|||#{window_name}|||#{pane_current_command}|||#{pane_pid}"`
       );
       if (!raw) { ctx.ui.notify("No windows in session.", "error"); return; }
 
       const idle = raw.split("\n")
         .map((line) => {
-          const [idx, name, cmd] = line.split("|||");
-          return { index: parseInt(idx), name, cmd };
+          const [idx, name, cmd, pid] = line.split("|||");
+          return { index: parseInt(idx), name, cmd, pid };
         })
-        .filter((w) => shells.has(w.cmd));
+        .filter((w) => {
+          if (!shells.has(w.cmd)) return false;
+          // Only idle if the shell has no child processes
+          const children = execSafe(`pgrep -P ${w.pid}`);
+          return !children;
+        });
 
       if (idle.length === 0) {
         ctx.ui.notify("No idle windows to clear.", "info");
