@@ -1,6 +1,6 @@
 {
   "name": "@romansix/pi-tmux",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Pi coding agent extension: tmux session management per project",
   "repository": {
     "type": "git",
