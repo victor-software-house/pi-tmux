@@ -19,7 +19,7 @@
     ]
   },
   "dependencies": {
-    "chokidar": "^4"
+    "chokidar": "^5.0.0"
   },
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",
