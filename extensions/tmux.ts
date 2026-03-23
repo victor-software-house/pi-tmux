@@ -529,8 +529,8 @@ export default function (pi: ExtensionAPI) {
 WHEN TO USE: Prefer this over bash for long-running or background commands: dev servers, file watchers, build processes, test suites, anything that runs continuously or takes more than a few seconds. Use bash for quick one-shot commands that complete immediately (ls, cat, grep, git status, etc.).
 
 Actions:
-- run: Run a command in a new tmux window. If the session already exists, a new window is added to it. When the command finishes, the agent is automatically notified with the exit code and recent output. Use silenceTimeout to get notified when the command may be waiting for input.
-- attach: Open a terminal view attached to the session (for the user to interact with). Supports iTerm2, Terminal.app, kitty, ghostty, WezTerm, and tmux nesting. Use 'mode' param to control layout: 'split-vertical' (default), 'tab', or 'split-horizontal'. Splits open inside the current iTerm2 pane.
+- run: Run a command in a new tmux window. Auto-attaches a terminal split pane so the user sees output live. When the command finishes, the agent is automatically notified with the exit code and recent output. Use silenceTimeout to get notified when the command may be waiting for input.
+- attach: Open a terminal view attached to the session (for the user to interact with). Supports iTerm2, Terminal.app, kitty, ghostty, WezTerm, and tmux nesting. Use 'mode' param to control layout: 'split-vertical' (default), 'tab', or 'split-horizontal'. Splits open inside the current iTerm2 pane. Normally not needed — 'run' auto-attaches.
 - peek: Capture recent output from tmux windows. Use window param to target a specific window, or omit for all. Use this to check on running processes.
 - list: List all windows in the session.
 - kill: Kill the entire session.
@@ -540,8 +540,10 @@ The user can also type /tmux to attach as a vertical split (default), /tmux tab 
     promptSnippet: "Manage a tmux session for the current project (one session per git root). Prefer this over bash for long-running or background commands.",
     promptGuidelines: [
       "Prefer tmux over bash for long-running or background commands: dev servers, file watchers, build processes, test suites, anything that runs continuously or takes more than a few seconds. Use bash for quick one-shot commands that complete immediately (ls, cat, grep, git status, etc.).",
-      "After using tmux 'run', you do not need to poll or wait to find out when a command finishes. The session will automatically notify you with the exit code and recent output when the command completes — just move on to other work. You can still peek at any time to check intermediate output from a running process.",
+      "After using tmux 'run', the terminal auto-attaches as a split pane so the user sees commands live. You do not need to call 'attach' separately. The session will automatically notify you with the exit code and recent output when the command completes — just move on to other work.",
       "For commands that might prompt for input (installers, interactive tools, confirmations), use silenceTimeout to get notified when the command goes quiet. Defaults: 60s initial, 1.5x backoff factor, 5min cap.",
+      "NEVER kill tmux sessions unnecessarily — preserve history for later inspection via 'peek'. Only kill when explicitly asked.",
+      "Prefer sending commands to an existing window with tmux send-keys instead of creating new windows for every command. Avoid window proliferation.",
     ],
     parameters: TmuxParams,
 
@@ -605,12 +607,21 @@ The user can also type /tmux to attach as a vertical split (default), /tmux tab 
             });
           }
 
+          // Auto-attach so the user can see commands running live
+          const mode = params.mode ?? "split-vertical";
+          let attachMsg = "";
+          try {
+            attachMsg = attachToSession(ctx.cwd, mode);
+          } catch {
+            attachMsg = "(auto-attach failed — use /tmux to attach manually)";
+          }
+
           const label = params.name ? `${params.name}: ` : "";
           return {
             content: [
               {
                 type: "text",
-                text: `${exists ? "Added to" : "Created"} session ${session}\n  :${windowIndex}  ${label}${params.command}`,
+                text: `${exists ? "Added to" : "Created"} session ${session}\n  :${windowIndex}  ${label}${params.command}\n${attachMsg}`,
               },
             ],
             details: { session, existed: exists, windowIndex },
