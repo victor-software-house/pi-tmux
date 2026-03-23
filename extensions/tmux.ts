@@ -130,11 +130,7 @@ function capturePanes(name: string, window: number | "all"): string {
 
 function openTerminalTab(session: string, mode: string = "split-vertical"): string {
   const term = process.env.TERM_PROGRAM ?? "";
-  // Use -CC (control mode) for iTerm2 so tmux windows render as native tabs/panes.
-  // For other terminals, fall back to standard attach.
-  const attachCmd = term === "iTerm.app"
-    ? `tmux -CC attach -t ${session}`
-    : `tmux attach -t ${session}`;
+  const attachCmd = `tmux attach -t ${session}`;
 
   // Already inside tmux — switch client instead of nesting
   if (process.env.TMUX) {
