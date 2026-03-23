@@ -1,6 +1,7 @@
 {
   "name": "@victor-software-house/pi-tmux",
   "version": "1.2.0",
+  "type": "module",
   "description": "Pi coding agent extension: tmux session management per project (fork with split pane support)",
   "repository": {
     "type": "git",
@@ -21,9 +22,15 @@
     "chokidar": "^4"
   },
   "peerDependencies": {
-    "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-ai": "*",
+    "@mariozechner/pi-coding-agent": "*",
     "@mariozechner/pi-tui": "*",
     "@sinclair/typebox": "*"
+  },
+  "devDependencies": {
+    "@mariozechner/pi-ai": "^0.62.0",
+    "@mariozechner/pi-coding-agent": "^0.62.0",
+    "@mariozechner/pi-tui": "^0.62.0",
+    "@sinclair/typebox": "^0.34.48"
   }
 }

@@ -458,7 +458,7 @@ export default function (pi: ExtensionAPI) {
       if (choice === undefined || choice === null) return;
 
       let target: number | "all";
-      if (choice === 0 || choice === "all windows") {
+      if (String(choice) === "0" || choice === "all windows") {
         target = "all";
       } else {
         const idx = typeof choice === "number" ? choice - 1 : options.indexOf(String(choice)) - 1;
@@ -550,7 +550,8 @@ The user can also type /tmux to attach in a new terminal tab, /tmux split-vertic
       if (!gitRoot) {
         return {
           content: [{ type: "text", text: "Error: not in a git repository." }],
-          isError: true,
+
+          details: {},
         };
       }
 
@@ -561,7 +562,8 @@ The user can also type /tmux to attach in a new terminal tab, /tmux split-vertic
           if (!params.command) {
             return {
               content: [{ type: "text", text: "Error: 'command' required for run action." }],
-              isError: true,
+    
+              details: {},
             };
           }
 
@@ -619,16 +621,16 @@ The user can also type /tmux to attach in a new terminal tab, /tmux split-vertic
           if (!sessionExists(session)) {
             return {
               content: [{ type: "text", text: `No session '${session}' to attach to.` }],
-              isError: true,
+    
+              details: {},
             };
           }
 
           const mode = params.mode ?? "tab";
           const msg = attachToSession(ctx.cwd, mode);
-          const failed = msg.startsWith("Failed");
           return {
             content: [{ type: "text", text: msg }],
-            ...(failed && { isError: true }),
+            details: {},
           };
         }
 
@@ -636,7 +638,8 @@ The user can also type /tmux to attach in a new terminal tab, /tmux split-vertic
           if (!sessionExists(session)) {
             return {
               content: [{ type: "text", text: `No session '${session}'.` }],
-              isError: true,
+    
+              details: {},
             };
           }
 
@@ -661,7 +664,8 @@ The user can also type /tmux to attach in a new terminal tab, /tmux split-vertic
           if (!sessionExists(session)) {
             return {
               content: [{ type: "text", text: `No session '${session}'.` }],
-              isError: true,
+    
+              details: {},
             };
           }
 
@@ -684,12 +688,14 @@ The user can also type /tmux to attach in a new terminal tab, /tmux split-vertic
           if (!sessionExists(session)) {
             return {
               content: [{ type: "text", text: `No session '${session}' to kill.` }],
+              details: {},
             };
           }
 
           exec(`tmux kill-session -t ${session}`);
           return {
             content: [{ type: "text", text: `Killed session ${session}.` }],
+            details: {},
           };
         }
 
@@ -698,7 +704,8 @@ The user can also type /tmux to attach in a new terminal tab, /tmux split-vertic
           if (win === undefined || win === "all") {
             return {
               content: [{ type: "text", text: "Error: 'window' (index) required for mute action." }],
-              isError: true,
+    
+              details: {},
             };
           }
 
@@ -706,7 +713,8 @@ The user can also type /tmux to attach in a new terminal tab, /tmux split-vertic
           if (isNaN(winIdx)) {
             return {
               content: [{ type: "text", text: `Error: invalid window index '${win}'.` }],
-              isError: true,
+    
+              details: {},
             };
           }
 
@@ -731,13 +739,15 @@ The user can also type /tmux to attach in a new terminal tab, /tmux split-vertic
 
           return {
             content: [{ type: "text", text: `Muted silence notifications for "${winName}" (:${winIdx}).` }],
+            details: {},
           };
         }
 
         default:
           return {
             content: [{ type: "text", text: `Unknown action: ${params.action}` }],
-            isError: true,
+  
+            details: {},
           };
       }
     },
@@ -763,7 +773,7 @@ The user can also type /tmux to attach in a new terminal tab, /tmux split-vertic
       const content = result.content?.[0];
       const raw = content?.type === "text" ? content.text : "";
 
-      if (result.isError) {
+      if (raw.startsWith("Error:") || raw.startsWith("Failed")) {
         return new Text(theme.fg("error", raw), 0, 0);
       }
 
