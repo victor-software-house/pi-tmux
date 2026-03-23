@@ -128,6 +128,17 @@ function capturePanes(name: string, window: number | "all"): string {
     .join("\n\n");
 }
 
+const IT2API = "/Applications/iTerm.app/Contents/Resources/utilities/it2api";
+
+/** Get the iTerm2 session ID of the currently focused session. */
+function getActiveiTermSession(): string | null {
+  const raw = execSafe(`${IT2API} show-focus 2>/dev/null`);
+  if (!raw) return null;
+  // Output: Active session is: Session "name" id=UUID (dims) frame=[...]
+  const match = raw.match(/id=([0-9A-F-]{36})/);
+  return match?.[1] ?? null;
+}
+
 function openTerminalTab(session: string, mode: string = "split-vertical"): string {
   const term = process.env.TERM_PROGRAM ?? "";
   const attachCmd = `tmux attach -t ${session}`;
@@ -139,7 +150,38 @@ function openTerminalTab(session: string, mode: string = "split-vertical"): stri
   }
 
   switch (term) {
-    case "iTerm.app":
+    case "iTerm.app": {
+      // Prefer it2api for native splits/tabs — no nested tmux, proper iTerm2 panes.
+      const activeSession = getActiveiTermSession();
+      if (activeSession) {
+        if (mode === "split-vertical") {
+          const result = execSafe(`${IT2API} split-pane --vertical "${activeSession}"`);
+          if (result) {
+            // Extract new session ID and send the attach command
+            const match = result.match(/id=(\S+)/);
+            if (match) {
+              execSafe(`${IT2API} send-text "${match[1]}" "${escapeForTmux(attachCmd)}\n"`);
+              return `Opened iTerm2 vertical split attached to ${session}.`;
+            }
+          }
+        } else if (mode === "split-horizontal") {
+          const result = execSafe(`${IT2API} split-pane "${activeSession}"`);
+          if (result) {
+            const match = result.match(/id=(\S+)/);
+            if (match) {
+              execSafe(`${IT2API} send-text "${match[1]}" "${escapeForTmux(attachCmd)}\n"`);
+              return `Opened iTerm2 horizontal split attached to ${session}.`;
+            }
+          }
+        } else {
+          // tab mode — create-tab --command handles it in one call
+          const result = execSafe(`${IT2API} create-tab --command "${escapeForTmux(attachCmd)}"`);
+          if (result) {
+            return `Opened iTerm2 tab attached to ${session}.`;
+          }
+        }
+      }
+      // Fallback: AppleScript if it2api fails
       if (mode === "split-vertical") {
         exec(`osascript -e '
           tell application "iTerm2"
@@ -174,6 +216,7 @@ function openTerminalTab(session: string, mode: string = "split-vertical"): stri
           end tell'`);
         return `Opened iTerm2 tab attached to ${session}.`;
       }
+    }
 
     case "Apple_Terminal":
       exec(`osascript -e '
