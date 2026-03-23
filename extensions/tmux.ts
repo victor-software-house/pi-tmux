@@ -56,7 +56,7 @@ const TmuxParams = Type.Object({
   ),
   mode: Type.Optional(
     Type.String({
-      description: "How to open the terminal for 'attach' action: 'tab' (default), 'split-vertical', or 'split-horizontal'.",
+      description: "How to open the terminal for 'attach' action: 'split-vertical' (default), 'tab', or 'split-horizontal'.",
     })
   ),
 });
@@ -123,7 +123,7 @@ function capturePanes(name: string, window: number | "all"): string {
     .join("\n\n");
 }
 
-function openTerminalTab(session: string, mode: string = "tab"): string {
+function openTerminalTab(session: string, mode: string = "split-vertical"): string {
   const term = process.env.TERM_PROGRAM ?? "";
   const attachCmd = `tmux attach -t ${session}`;
 
@@ -195,7 +195,7 @@ function openTerminalTab(session: string, mode: string = "tab"): string {
   }
 }
 
-function attachToSession(cwd: string, mode: string = "tab"): string {
+function attachToSession(cwd: string, mode: string = "split-vertical"): string {
   const gitRoot = getGitRoot(cwd);
   if (!gitRoot) return "Not in a git repository.";
 
@@ -430,7 +430,7 @@ export default function (pi: ExtensionAPI) {
       }));
     },
     handler: async (args, ctx) => {
-      const mode = (args ?? "").trim() || "tab";
+      const mode = (args ?? "").trim() || "split-vertical";
       const msg = attachToSession(ctx.cwd, mode);
       ctx.ui.notify(msg, msg.startsWith("Failed") || msg.startsWith("No") || msg.startsWith("Not") ? "error" : "info");
     },
@@ -530,13 +530,13 @@ WHEN TO USE: Prefer this over bash for long-running or background commands: dev 
 
 Actions:
 - run: Run a command in a new tmux window. If the session already exists, a new window is added to it. When the command finishes, the agent is automatically notified with the exit code and recent output. Use silenceTimeout to get notified when the command may be waiting for input.
-- attach: Open a terminal view attached to the session (for the user to interact with). Supports iTerm2, Terminal.app, kitty, ghostty, WezTerm, and tmux nesting. Use 'mode' param to control layout: 'tab' (default), 'split-vertical', or 'split-horizontal'. Splits open inside the current iTerm2 pane.
+- attach: Open a terminal view attached to the session (for the user to interact with). Supports iTerm2, Terminal.app, kitty, ghostty, WezTerm, and tmux nesting. Use 'mode' param to control layout: 'split-vertical' (default), 'tab', or 'split-horizontal'. Splits open inside the current iTerm2 pane.
 - peek: Capture recent output from tmux windows. Use window param to target a specific window, or omit for all. Use this to check on running processes.
 - list: List all windows in the session.
 - kill: Kill the entire session.
 - mute: Suppress silence notifications for a window (requires window index). Use when a command is expected to have long silence periods, not waiting for input.
 
-The user can also type /tmux to attach in a new terminal tab, /tmux split-vertical or /tmux split-horizontal to open as a split pane, or /tmux:cat to select a window and bring its output into the conversation.`,
+The user can also type /tmux to attach as a vertical split (default), /tmux tab to open in a new tab, /tmux split-horizontal to split horizontally, or /tmux:cat to select a window and bring its output into the conversation.`,
     promptSnippet: "Manage a tmux session for the current project (one session per git root). Prefer this over bash for long-running or background commands.",
     promptGuidelines: [
       "Prefer tmux over bash for long-running or background commands: dev servers, file watchers, build processes, test suites, anything that runs continuously or takes more than a few seconds. Use bash for quick one-shot commands that complete immediately (ls, cat, grep, git status, etc.).",
@@ -626,7 +626,7 @@ The user can also type /tmux to attach in a new terminal tab, /tmux split-vertic
             };
           }
 
-          const mode = params.mode ?? "tab";
+          const mode = params.mode ?? "split-vertical";
           const msg = attachToSession(ctx.cwd, mode);
           return {
             content: [{ type: "text", text: msg }],
@@ -760,7 +760,7 @@ The user can also type /tmux to attach in a new terminal tab, /tmux split-vertic
       if (action === "run" && args.command) {
         const label = args.name ? theme.fg("text", args.name + ": ") : "";
         text += "\n  " + label + theme.fg("muted", args.command);
-      } else if (action === "attach" && args.mode && args.mode !== "tab") {
+      } else if (action === "attach" && args.mode && args.mode !== "split-vertical") {
         text += theme.fg("muted", ` (${args.mode})`);
       } else if (action === "peek" && args.window !== undefined) {
         text += theme.fg("muted", ` :${args.window}`);
