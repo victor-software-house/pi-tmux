@@ -130,8 +130,18 @@ function capturePanes(name: string, window: number | "all"): string {
 
 const IT2API = "/Applications/iTerm.app/Contents/Resources/utilities/it2api";
 
+/** Check if it2api is available (iTerm2 installed, python3 + iterm2 package present, API enabled). */
+let _it2apiAvailable: boolean | null = null;
+function isIt2apiAvailable(): boolean {
+  if (_it2apiAvailable === null) {
+    _it2apiAvailable = execSafe(`${IT2API} list-sessions 2>/dev/null`) !== null;
+  }
+  return _it2apiAvailable;
+}
+
 /** Get the iTerm2 session ID of the currently focused session. */
 function getActiveiTermSession(): string | null {
+  if (!isIt2apiAvailable()) return null;
   const raw = execSafe(`${IT2API} show-focus 2>/dev/null`);
   if (!raw) return null;
   // Output: Active session is: Session "name" id=UUID (dims) frame=[...]
@@ -162,24 +172,46 @@ function openTerminalTab(session: string, mode: string = "split-vertical"): stri
       const isSplit = mode === "split-vertical" || mode === "split-horizontal";
       const label = isSplit ? `${mode.replace("split-", "")} split` : "tab";
 
+      // Prefer it2api — native iTerm2 panes, no nested tmux chrome.
+      // Requires: python3, `pip install iterm2`, and EnableAPIServer=1 in iTerm2.
       const activeSession = getActiveiTermSession();
-      if (!activeSession) {
-        return `Could not detect active iTerm2 session. Run manually:\n  ${attachCmd}`;
+      if (activeSession) {
+        if (isSplit) {
+          const flag = mode === "split-vertical" ? " --vertical" : "";
+          const result = execSafe(`${IT2API} split-pane${flag} "${activeSession}"`);
+          const newId = result?.match(/id=([0-9A-F-]{36})/)?.[1];
+          if (newId) {
+            execSafe(`${IT2API} send-text "${newId}" "${escapeForTmux(attachCmd)}\n"`);
+            return `Opened iTerm2 ${label} attached to ${session}.`;
+          }
+        } else {
+          const result = execSafe(`${IT2API} create-tab --command "${escapeForTmux(attachCmd)}"`);
+          if (result) return `Opened iTerm2 tab attached to ${session}.`;
+        }
       }
 
+      // Fallback: osascript when it2api is unavailable (no python3, no iterm2 package, API disabled).
       if (isSplit) {
-        const flag = mode === "split-vertical" ? " --vertical" : "";
-        const result = execSafe(`${IT2API} split-pane${flag} "${activeSession}"`);
-        const newId = result?.match(/id=([0-9A-F-]{36})/)?.[1];
-        if (!newId) {
-          return `Failed to create iTerm2 split. Run manually:\n  ${attachCmd}`;
-        }
-        execSafe(`${IT2API} send-text "${newId}" "${escapeForTmux(attachCmd)}\n"`);
+        const direction = mode === "split-vertical" ? "vertically" : "horizontally";
+        exec(`osascript -e '
+          tell application "iTerm2"
+            tell current session of current window
+              set newSession to (split ${direction} with default profile)
+              tell newSession
+                write text "${escapeForTmux(attachCmd)}"
+              end tell
+            end tell
+          end tell'`);
       } else {
-        const result = execSafe(`${IT2API} create-tab --command "${escapeForTmux(attachCmd)}"`);
-        if (!result) {
-          return `Failed to create iTerm2 tab. Run manually:\n  ${attachCmd}`;
-        }
+        exec(`osascript -e '
+          tell application "iTerm2"
+            tell current window
+              set newTab to (create tab with default profile)
+              tell current session of newTab
+                write text "${escapeForTmux(attachCmd)}"
+              end tell
+            end tell
+          end tell'`);
       }
       return `Opened iTerm2 ${label} attached to ${session}.`;
     }
