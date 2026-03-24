@@ -129,6 +129,7 @@ function capturePanes(name: string, window: number | "all"): string {
 }
 
 const IT2API = "/Applications/iTerm.app/Contents/Resources/utilities/it2api";
+const IT2API_INSTALL_HINT = "Enable: iTerm2 > Settings > General > Magic > Enable Python API. Then: python3 -m pip install iterm2";
 
 /** Check if it2api is available (iTerm2 installed, python3 + iterm2 package present, API enabled). */
 let _it2apiAvailable: boolean | null = null;
@@ -139,13 +140,21 @@ function isIt2apiAvailable(): boolean {
   return _it2apiAvailable;
 }
 
-/** Get the iTerm2 session ID of the currently focused session. */
+/** Get the iTerm2 session ID of the currently focused session via it2api. */
 function getActiveiTermSession(): string | null {
   if (!isIt2apiAvailable()) return null;
   const raw = execSafe(`${IT2API} show-focus 2>/dev/null`);
   if (!raw) return null;
-  // Output: Active session is: Session "name" id=UUID (dims) frame=[...]
   const match = raw.match(/id=([0-9A-F-]{36})/);
+  return match?.[1] ?? null;
+}
+
+/** Get the iTerm2 window ID of the key (focused) window via it2api. */
+function getActiveiTermWindow(): string | null {
+  if (!isIt2apiAvailable()) return null;
+  const raw = execSafe(`${IT2API} show-focus 2>/dev/null`);
+  if (!raw) return null;
+  const match = raw.match(/Key window:\s*(pty-[0-9A-F-]+)/);
   return match?.[1] ?? null;
 }
 
@@ -153,7 +162,8 @@ function openTerminalTab(session: string, mode: string = "split-vertical"): stri
   const term = process.env.TERM_PROGRAM ?? "";
   const attachCmd = `tmux attach -t ${session}`;
 
-  // Already inside tmux — use native tmux splits/tabs instead of nesting
+  // Already inside tmux (e.g. VPS via -CC, or local tmux) — use native tmux
+  // splits/tabs. With -CC, iTerm2 renders these as native panes automatically.
   if (process.env.TMUX) {
     if (mode === "split-vertical") {
       exec(`tmux split-window -h -t ${session}`);
@@ -172,8 +182,8 @@ function openTerminalTab(session: string, mode: string = "split-vertical"): stri
       const isSplit = mode === "split-vertical" || mode === "split-horizontal";
       const label = isSplit ? `${mode.replace("split-", "")} split` : "tab";
 
-      // Prefer it2api — native iTerm2 panes, no nested tmux chrome.
-      // Requires: python3, `pip install iterm2`, and EnableAPIServer=1 in iTerm2.
+      // Primary path: it2api — native iTerm2 panes with proper tmux -CC integration.
+      // Requires: python3, `pip install iterm2`, and EnableAPIServer in iTerm2.
       const activeSession = getActiveiTermSession();
       if (activeSession) {
         if (isSplit) {
@@ -185,12 +195,22 @@ function openTerminalTab(session: string, mode: string = "split-vertical"): stri
             return `Opened iTerm2 ${label} attached to ${session}.`;
           }
         } else {
-          const result = execSafe(`${IT2API} create-tab --command "${escapeForTmux(attachCmd)}"`);
-          if (result) return `Opened iTerm2 tab attached to ${session}.`;
+          // Tab mode: create tab in current window, then exec into tmux -CC.
+          // `exec` replaces the shell so the tab auto-closes when tmux exits.
+          const windowId = getActiveiTermWindow();
+          const windowFlag = windowId ? ` --window "${windowId}"` : "";
+          const result = execSafe(`${IT2API} create-tab${windowFlag}`);
+          const newId = result?.match(/id=([0-9A-F-]{36})/)?.[1];
+          if (newId) {
+            execSafe(`${IT2API} send-text "${newId}" "exec tmux -CC attach -t ${escapeForTmux(session)}\n"`);
+            return `Opened iTerm2 tab attached to ${session}.`;
+          }
         }
       }
 
-      // Fallback: osascript when it2api is unavailable (no python3, no iterm2 package, API disabled).
+      // Fallback: osascript — no tmux -CC, nested tmux chrome visible.
+      // Show a warning so the user knows native integration is not active.
+      const warning = `\x1b[33m[pi-tmux] iTerm2 Python API not available. Using legacy attach (no native integration).\n${IT2API_INSTALL_HINT}\x1b[0m`;
       if (isSplit) {
         const direction = mode === "split-vertical" ? "vertically" : "horizontally";
         exec(`osascript -e '
@@ -213,7 +233,7 @@ function openTerminalTab(session: string, mode: string = "split-vertical"): stri
             end tell
           end tell'`);
       }
-      return `Opened iTerm2 ${label} attached to ${session}.`;
+      return `${warning}\nOpened iTerm2 ${label} attached to ${session}.`;
     }
 
     case "Apple_Terminal":
