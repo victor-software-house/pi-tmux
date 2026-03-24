@@ -143,10 +143,18 @@ function openTerminalTab(session: string, mode: string = "split-vertical"): stri
   const term = process.env.TERM_PROGRAM ?? "";
   const attachCmd = `tmux attach -t ${session}`;
 
-  // Already inside tmux — switch client instead of nesting
+  // Already inside tmux — use native tmux splits/tabs instead of nesting
   if (process.env.TMUX) {
-    exec(`tmux switch-client -t ${session}`);
-    return `Switched tmux client to session ${session}.`;
+    if (mode === "split-vertical") {
+      exec(`tmux split-window -h -t ${session}`);
+      return `Opened tmux vertical split in session ${session}.`;
+    } else if (mode === "split-horizontal") {
+      exec(`tmux split-window -v -t ${session}`);
+      return `Opened tmux horizontal split in session ${session}.`;
+    } else {
+      exec(`tmux new-window -t ${session}`);
+      return `Opened tmux tab in session ${session}.`;
+    }
   }
 
   switch (term) {
