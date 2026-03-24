@@ -129,7 +129,7 @@ function capturePanes(name: string, window: number | "all"): string {
 }
 
 const IT2API = "/Applications/iTerm.app/Contents/Resources/utilities/it2api";
-const IT2API_INSTALL_HINT = "Enable: iTerm2 > Settings > General > Magic > Enable Python API. Then: python3 -m pip install iterm2";
+const IT2API_INSTALL_HINT = "Enable: iTerm2 > Settings > General > Magic > Enable Python API. Then: uv pip install --system iterm2";
 
 /** Check if it2api is available (iTerm2 installed, python3 + iterm2 package present, API enabled). */
 let _it2apiAvailable: boolean | null = null;
