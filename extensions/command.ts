@@ -111,28 +111,28 @@ async function openSettingsPanel(ctx: ExtensionCommandContext): Promise<void> {
 			{
 				id: "autoAttach",
 				label: "Auto-attach on run",
-				description: "never: removes attach from tool | session-create: first run only | always: every run",
+				description: autoAttachTip(currentSettings.autoAttach),
 				currentValue: currentSettings.autoAttach,
 				values: [...AUTO_ATTACH_VALUES],
 			},
 			{
 				id: "defaultLayout",
 				label: "Default attach layout",
-				description: "How new terminal panes open when attaching",
+				description: layoutTip(currentSettings.defaultLayout),
 				currentValue: currentSettings.defaultLayout,
 				values: [...LAYOUT_VALUES],
 			},
 			{
 				id: "allowMute",
 				label: "Allow model to mute silence alerts",
-				description: "off: model cannot suppress silence notifications | on: model can mute expected long silences",
+				description: muteTip(currentSettings.allowMute),
 				currentValue: currentSettings.allowMute ? "on" : "off",
 				values: ["on", "off"],
 			},
 			{
 				id: "maxWindows",
 				label: "Max windows per session",
-				description: "Maximum number of tmux windows the model can create",
+				description: `Model can open up to ${currentSettings.maxWindows} tmux windows`,
 				currentValue: currentMax,
 				values: maxValues,
 			},
@@ -152,6 +152,7 @@ async function openSettingsPanel(ctx: ExtensionCommandContext): Promise<void> {
 				changed = true;
 				applySettingChange(id, newValue);
 				saveSettings(currentSettings);
+				updateDescription(items, id, newValue);
 			},
 			() => done(undefined),
 			{ enableSearch: true },
@@ -197,6 +198,56 @@ function isAutoAttachMode(value: string): value is AutoAttachMode {
 
 function isAttachLayout(value: string): value is AttachLayout {
 	return LAYOUT_VALUES.includes(value as AttachLayout);
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic description tips per selected value
+// ---------------------------------------------------------------------------
+
+const AUTO_ATTACH_TIPS: Record<AutoAttachMode, string> = {
+	never: "Attach action and params removed from the tool schema entirely",
+	"session-create": "Only the first run that creates a session auto-attaches",
+	always: "Every run with attach: true opens a visible pane",
+};
+
+const LAYOUT_TIPS: Record<AttachLayout, string> = {
+	"split-vertical": "Opens a vertical split alongside the current pane",
+	tab: "Opens a new terminal tab",
+	"split-horizontal": "Opens a horizontal split below the current pane",
+};
+
+function autoAttachTip(value: AutoAttachMode): string {
+	return AUTO_ATTACH_TIPS[value];
+}
+
+function layoutTip(value: AttachLayout): string {
+	return LAYOUT_TIPS[value];
+}
+
+function muteTip(on: boolean): string {
+	return on
+		? "Model can suppress silence notifications for long-running commands"
+		: "Silence notifications cannot be suppressed by the model";
+}
+
+interface MutableItem {
+	id: string;
+	description?: string;
+}
+
+function updateDescription(items: MutableItem[], id: string, newValue: string): void {
+	const item = items.find((i) => i.id === id);
+	if (!item) return;
+
+	if (id === "autoAttach" && isAutoAttachMode(newValue)) {
+		item.description = autoAttachTip(newValue);
+	} else if (id === "defaultLayout" && isAttachLayout(newValue)) {
+		item.description = layoutTip(newValue);
+	} else if (id === "allowMute") {
+		item.description = muteTip(newValue === "on");
+	} else if (id === "maxWindows") {
+		item.description = `Model can open up to ${newValue} tmux windows`;
+	}
 }
 
 // ---------------------------------------------------------------------------
