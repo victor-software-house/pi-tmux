@@ -2,7 +2,7 @@
  * tmux extension - manages a tmux session per project (git root).
  *
  * Tool: tmux (run/attach/peek/list/kill)
- * Commands: /tmux (attach in iTerm2), /tmux:cat (capture window output into conversation)
+ * Commands: /tmux (settings), /tmux attach|tab|split|cat|clear|show|kill|help
  *
  * Completion notifications: commands are wrapped so that when they finish,
  * a signal file is written. A fs.watch picks it up and injects a message
@@ -15,12 +15,56 @@ import { Type, type Static } from "@sinclair/typebox";
 import { StringEnum } from "@mariozechner/pi-ai";
 import { execSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 
 
 const SIGNAL_BASE = "/tmp/pi-tmux";
+
+// ---------------------------------------------------------------------------
+// Settings persistence
+// ---------------------------------------------------------------------------
+
+type AutoAttachMode = "never" | "session-create" | "always";
+type AttachLayout = "split-vertical" | "tab" | "split-horizontal";
+
+interface TmuxSettings {
+  autoAttach: AutoAttachMode;
+  defaultLayout: AttachLayout;
+}
+
+const DEFAULT_SETTINGS: TmuxSettings = {
+  autoAttach: "session-create",
+  defaultLayout: "split-vertical",
+};
+
+const AUTO_ATTACH_VALUES: readonly AutoAttachMode[] = ["never", "session-create", "always"];
+const LAYOUT_VALUES: readonly AttachLayout[] = ["split-vertical", "tab", "split-horizontal"];
+
+const SETTINGS_PATH = join(homedir(), ".pi", "agent", ".pi-tmux.json");
+
+function loadSettings(): TmuxSettings {
+  try {
+    if (!existsSync(SETTINGS_PATH)) return { ...DEFAULT_SETTINGS };
+    const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf-8"));
+    return {
+      autoAttach: AUTO_ATTACH_VALUES.includes(raw?.autoAttach) ? raw.autoAttach : DEFAULT_SETTINGS.autoAttach,
+      defaultLayout: LAYOUT_VALUES.includes(raw?.defaultLayout) ? raw.defaultLayout : DEFAULT_SETTINGS.defaultLayout,
+    };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+
+function saveSettings(settings: TmuxSettings): void {
+  const dir = join(homedir(), ".pi", "agent");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + "\n");
+}
+
+let currentSettings = loadSettings();
 
 const TmuxParams = Type.Object({
   action: StringEnum(["run", "attach", "peek", "list", "kill", "mute"] as const),
@@ -171,8 +215,27 @@ function getActiveiTermWindow(): string | null {
   return match?.[1] ?? null;
 }
 
-function openTerminalTab(session: string, mode: string = "split-vertical"): string {
+interface AttachOptions {
+  /** tmux session name */
+  session: string;
+  /** Layout mode */
+  mode?: AttachLayout;
+  /** Specific tmux window index to select before attaching */
+  tmuxWindow?: number;
+  /** iTerm session ID of the pane running pi (for targeted splits) */
+  piSessionId?: string | null;
+}
+
+function openTerminalTab(opts: AttachOptions): string {
+  const { session, tmuxWindow } = opts;
+  const mode = opts.mode ?? currentSettings.defaultLayout;
   const term = process.env.TERM_PROGRAM ?? "";
+
+  // Select the specific window first if requested
+  if (tmuxWindow !== undefined) {
+    execSafe(`tmux select-window -t ${session}:${tmuxWindow}`);
+  }
+
   const attachCmd = `tmux attach -t ${session}`;
 
   // Already inside tmux (e.g. VPS via -CC, or local tmux) — use native tmux
@@ -195,21 +258,19 @@ function openTerminalTab(session: string, mode: string = "split-vertical"): stri
       const isSplit = mode === "split-vertical" || mode === "split-horizontal";
       const label = isSplit ? `${mode.replace("split-", "")} split` : "tab";
 
-      // Primary path: it2api — native iTerm2 panes with proper tmux -CC integration.
-      // Requires: python3, `pip install iterm2`, and EnableAPIServer in iTerm2.
-      const activeSession = getActiveiTermSession();
-      if (activeSession) {
+      // Use the pi session ID if provided, otherwise fall back to active session.
+      // This ensures splits open next to the pi pane, not wherever the user last clicked.
+      const targetSession = opts.piSessionId ?? getActiveiTermSession();
+      if (targetSession) {
         if (isSplit) {
           const flag = mode === "split-vertical" ? " --vertical" : "";
-          const result = execSafe(`${IT2API} split-pane${flag} "${activeSession}"`);
+          const result = execSafe(`${IT2API} split-pane${flag} "${targetSession}"`);
           const newId = result?.match(/id=([0-9A-F-]{36})/)?.[1];
           if (newId) {
             execSafe(`${IT2API} send-text "${newId}" "${escapeForTmux(attachCmd)}\n"`);
             return `Opened iTerm2 ${label} attached to ${session}.`;
           }
         } else {
-          // Tab mode: create tab in current window, then exec into tmux -CC.
-          // `exec` replaces the shell so the tab auto-closes when tmux exits.
           const windowId = getActiveiTermWindow();
           const windowFlag = windowId ? ` --window "${windowId}"` : "";
           const result = execSafe(`${IT2API} create-tab${windowFlag}`);
@@ -221,8 +282,7 @@ function openTerminalTab(session: string, mode: string = "split-vertical"): stri
         }
       }
 
-      // Fallback: osascript — no tmux -CC, nested tmux chrome visible.
-      // Show a warning so the user knows native integration is not active.
+      // Fallback: osascript
       const warning = `\x1b[33m[pi-tmux] iTerm2 Python API not available. Using legacy attach (no native integration).\n${IT2API_INSTALL_HINT}\x1b[0m`;
       if (isSplit) {
         const direction = mode === "split-vertical" ? "vertically" : "horizontally";
@@ -274,15 +334,21 @@ function openTerminalTab(session: string, mode: string = "split-vertical"): stri
   }
 }
 
-function attachToSession(cwd: string, mode: string = "split-vertical"): string {
+function attachToSession(cwd: string, opts?: { mode?: AttachLayout; tmuxWindow?: number; piSessionId?: string | null }): string {
   const projectRoot = getProjectRoot(cwd);
   const session = sessionName(projectRoot);
   if (!sessionExists(session)) return `No tmux session for this project.`;
 
   try {
-    return openTerminalTab(session, mode);
-  } catch (e: any) {
-    return `Failed: ${e.message}\nRun manually:\n  tmux attach -t ${session}`;
+    return openTerminalTab({
+      session,
+      mode: opts?.mode,
+      tmuxWindow: opts?.tmuxWindow,
+      piSessionId: opts?.piSessionId,
+    });
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return `Failed: ${msg}\nRun manually:\n  tmux attach -t ${session}`;
   }
 }
 
@@ -340,6 +406,14 @@ function escapeForTmux(s: string): string {
 }
 
 export default function (pi: ExtensionAPI) {
+  // Capture the iTerm session ID where pi is running so attach targets the right pane.
+  let piSessionId: string | null = null;
+  function capturePiSession(): void {
+    if (process.env.TERM_PROGRAM === "iTerm.app") {
+      piSessionId = getActiveiTermSession();
+    }
+  }
+
   // Each pi instance gets its own signal directory to avoid cross-talk.
   // Resolved lazily on first use (needs session_start to have fired).
   let SIGNAL_DIR: string | null = null;
@@ -354,6 +428,9 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.on("session_start", async (_event, ctx) => {
+    capturePiSession();
+    currentSettings = loadSettings();
+
     const sessionFile = ctx.sessionManager.getSessionFile();
     const id = sessionFile
       ? createHash("md5").update(sessionFile).digest("hex").slice(0, 16)
@@ -496,100 +573,197 @@ export default function (pi: ExtensionAPI) {
     }
   });
 
-  // /tmux — attach in terminal
+  // /tmux — unified command family
+  const TMUX_SUBCOMMANDS = ["attach", "tab", "split", "hsplit", "show", "cat", "clear", "kill", "help"];
+
   pi.registerCommand("tmux", {
-    description: "Open a terminal view attached to this project's tmux session. Usage: /tmux [tab|split-vertical|split-horizontal]",
+    description: "Manage tmux session. /tmux opens settings. /tmux attach|tab|split|hsplit|show|cat|clear|kill|help",
     getArgumentCompletions(prefix) {
-      const modes = ["tab", "split-vertical", "split-horizontal"];
-      return modes.filter((m) => m.startsWith(prefix ?? "")).map((m) => ({
-        label: m,
-        value: m,
-      }));
+      const lp = (prefix ?? "").toLowerCase();
+      const matches = TMUX_SUBCOMMANDS.filter((s) => s.startsWith(lp));
+      return matches.length > 0 ? matches.map((s) => ({ label: s, value: s })) : null;
     },
     handler: async (args, ctx) => {
-      const mode = (args ?? "").trim() || "split-vertical";
-      const msg = attachToSession(ctx.cwd, mode);
-      ctx.ui.notify(msg, msg.startsWith("Failed") || msg.startsWith("No") || msg.startsWith("Not") ? "error" : "info");
-    },
-  });
-
-  // /tmux:cat — capture window output into conversation
-  pi.registerCommand("tmux:cat", {
-    description: "Capture tmux window output and bring it into the conversation",
-    handler: async (_args, ctx) => {
+      const sub = (args ?? "").trim().toLowerCase();
       const projectRoot = getProjectRoot(ctx.cwd);
       const session = sessionName(projectRoot);
-      if (!sessionExists(session)) { ctx.ui.notify("No tmux session for this project.", "error"); return; }
 
-      const windows = getWindows(session);
-      if (windows.length === 0) { ctx.ui.notify("No windows in session.", "error"); return; }
+      // --- Settings panel (no args) ---
+      if (!sub) {
+        if (!ctx.hasUI) {
+          ctx.ui.notify(`auto-attach: ${currentSettings.autoAttach}\ndefault-layout: ${currentSettings.defaultLayout}`, "info");
+          return;
+        }
 
-      const options = [
-        "all windows",
-        ...windows.map((w) => `:${w.index}  ${w.title}${w.active ? "  (active)" : ""}`),
-      ];
+        const { getSettingsListTheme } = await import("@mariozechner/pi-coding-agent");
+        const { Container, SettingsList, Text: TuiText } = await import("@mariozechner/pi-tui");
 
-      const choice = await ctx.ui.select("Capture output from:", options);
-      if (choice === undefined || choice === null) return;
+        await ctx.ui.custom((_tui, theme, _kb, done) => {
+          const items = [
+            {
+              id: "autoAttach",
+              label: "Auto-attach on run",
+              description: "never: ignore attach requests | session-create: attach on first run only | always: attach every time",
+              currentValue: currentSettings.autoAttach,
+              values: [...AUTO_ATTACH_VALUES],
+            },
+            {
+              id: "defaultLayout",
+              label: "Default attach layout",
+              description: "How new terminal panes open when attaching",
+              currentValue: currentSettings.defaultLayout,
+              values: [...LAYOUT_VALUES],
+            },
+          ];
 
-      let target: number | "all";
-      if (String(choice) === "0" || choice === "all windows") {
-        target = "all";
-      } else {
-        const idx = typeof choice === "number" ? choice - 1 : options.indexOf(String(choice)) - 1;
-        const win = windows[idx];
-        if (!win) { ctx.ui.notify("Invalid window selection.", "error"); return; }
-        target = win.index;
-      }
-      const output = capturePanes(session, target);
+          const container = new Container();
+          container.addChild(new TuiText(theme.fg("accent", theme.bold("tmux settings")), 1, 1));
 
-      pi.sendUserMessage(`Here is the tmux output:\n\n\`\`\`\n${output}\n\`\`\``, {
-        deliverAs: "followUp",
-      });
-    },
-  });
+          const settingsList = new SettingsList(
+            items,
+            6,
+            getSettingsListTheme(),
+            (id, newValue) => {
+              if (id === "autoAttach" && AUTO_ATTACH_VALUES.includes(newValue as AutoAttachMode)) {
+                currentSettings.autoAttach = newValue as AutoAttachMode;
+              } else if (id === "defaultLayout" && LAYOUT_VALUES.includes(newValue as AttachLayout)) {
+                currentSettings.defaultLayout = newValue as AttachLayout;
+              }
+              saveSettings(currentSettings);
+            },
+            () => done(undefined),
+          );
 
-  // /tmux:clear — kill windows where the command has finished (shell is idle)
-  pi.registerCommand("tmux:clear", {
-    description: "Kill tmux windows where the command has finished (idle shells)",
-    handler: async (_args, ctx) => {
-      const projectRoot = getProjectRoot(ctx.cwd);
-      const session = sessionName(projectRoot);
-      if (!sessionExists(session)) { ctx.ui.notify("No tmux session for this project.", "error"); return; }
-
-      const shells = new Set(["bash", "zsh", "sh", "fish", "dash"]);
-      const raw = execSafe(
-        `tmux list-windows -t ${session} -F "#{window_index}|||#{window_name}|||#{pane_current_command}|||#{pane_pid}"`
-      );
-      if (!raw) { ctx.ui.notify("No windows in session.", "error"); return; }
-
-      const idle = raw.split("\n")
-        .map((line) => {
-          const [idx, name, cmd, pid] = line.split("|||");
-          return { index: parseInt(idx), name, cmd, pid };
-        })
-        .filter((w) => {
-          if (!shells.has(w.cmd)) return false;
-          // Only idle if the shell has no child processes
-          const children = execSafe(`pgrep -P ${w.pid}`);
-          return !children;
+          container.addChild(settingsList);
+          return {
+            render: (width: number) => container.render(width),
+            invalidate: () => container.invalidate(),
+            handleInput: (data: string) => { settingsList.handleInput?.(data); },
+          };
         });
-
-      if (idle.length === 0) {
-        ctx.ui.notify("No idle windows to clear.", "info");
         return;
       }
 
-      for (const w of idle) {
-        execSafe(`tmux kill-window -t ${session}:${w.index}`);
+      // --- Attach shortcuts ---
+      const attachModes: Record<string, AttachLayout> = {
+        attach: currentSettings.defaultLayout,
+        tab: "tab",
+        split: "split-vertical",
+        hsplit: "split-horizontal",
+      };
+      if (sub in attachModes) {
+        const msg = attachToSession(ctx.cwd, { mode: attachModes[sub], piSessionId });
+        ctx.ui.notify(msg, msg.startsWith("Failed") || msg.startsWith("No") ? "error" : "info");
+        return;
       }
 
-      // Kill session if no windows remain
-      if (!sessionExists(session)) {
-        ctx.ui.notify(`Cleared ${idle.length} idle window(s) — session closed.`, "info");
-      } else {
-        ctx.ui.notify(`Cleared ${idle.length} idle window(s).`, "info");
+      // --- Show ---
+      if (sub === "show") {
+        if (!sessionExists(session)) {
+          ctx.ui.notify("No tmux session for this project.", "info");
+          return;
+        }
+        const windows = getWindows(session);
+        const lines = windows.map((w) => `  :${w.index}  ${w.title}${w.active ? "  (active)" : ""}`);
+        ctx.ui.notify(`Session ${session} — ${windows.length} window(s)\n${lines.join("\n")}`, "info");
+        return;
       }
+
+      // --- Cat ---
+      if (sub === "cat") {
+        if (!sessionExists(session)) { ctx.ui.notify("No tmux session for this project.", "error"); return; }
+        const windows = getWindows(session);
+        if (windows.length === 0) { ctx.ui.notify("No windows in session.", "error"); return; }
+
+        const options = [
+          "all windows",
+          ...windows.map((w) => `:${w.index}  ${w.title}${w.active ? "  (active)" : ""}`),
+        ];
+
+        const choice = await ctx.ui.select("Capture output from:", options);
+        if (choice === undefined || choice === null) return;
+
+        let target: number | "all";
+        if (String(choice) === "0" || choice === "all windows") {
+          target = "all";
+        } else {
+          const idx = typeof choice === "number" ? choice - 1 : options.indexOf(String(choice)) - 1;
+          const win = windows[idx];
+          if (!win) { ctx.ui.notify("Invalid window selection.", "error"); return; }
+          target = win.index;
+        }
+        const output = capturePanes(session, target);
+
+        pi.sendUserMessage(`Here is the tmux output:\n\n\`\`\`\n${output}\n\`\`\``, {
+          deliverAs: "followUp",
+        });
+        return;
+      }
+
+      // --- Clear ---
+      if (sub === "clear") {
+        if (!sessionExists(session)) { ctx.ui.notify("No tmux session for this project.", "error"); return; }
+
+        const shells = new Set(["bash", "zsh", "sh", "fish", "dash"]);
+        const raw = execSafe(
+          `tmux list-windows -t ${session} -F "#{window_index}|||#{window_name}|||#{pane_current_command}|||#{pane_pid}"`
+        );
+        if (!raw) { ctx.ui.notify("No windows in session.", "error"); return; }
+
+        const idle = raw.split("\n")
+          .map((line) => {
+            const [idx, _name, cmd, pid] = line.split("|||");
+            return { index: parseInt(idx ?? "0"), cmd: cmd ?? "", pid: pid ?? "" };
+          })
+          .filter((w) => {
+            if (!shells.has(w.cmd)) return false;
+            const children = execSafe(`pgrep -P ${w.pid}`);
+            return !children;
+          });
+
+        if (idle.length === 0) {
+          ctx.ui.notify("No idle windows to clear.", "info");
+          return;
+        }
+
+        for (const w of idle) {
+          execSafe(`tmux kill-window -t ${session}:${w.index}`);
+        }
+
+        if (!sessionExists(session)) {
+          ctx.ui.notify(`Cleared ${idle.length} idle window(s) — session closed.`, "info");
+        } else {
+          ctx.ui.notify(`Cleared ${idle.length} idle window(s).`, "info");
+        }
+        return;
+      }
+
+      // --- Kill ---
+      if (sub === "kill") {
+        if (!sessionExists(session)) { ctx.ui.notify("No tmux session to kill.", "info"); return; }
+        exec(`tmux kill-session -t ${session}`);
+        ctx.ui.notify(`Killed session ${session}.`, "info");
+        return;
+      }
+
+      // --- Help ---
+      if (sub === "help") {
+        ctx.ui.notify([
+          "/tmux              Settings panel",
+          "/tmux attach       Attach (default layout)",
+          "/tmux tab          Attach as tab",
+          "/tmux split        Attach as vertical split",
+          "/tmux hsplit        Attach as horizontal split",
+          "/tmux show         Session info",
+          "/tmux cat          Capture output into conversation",
+          "/tmux clear        Kill idle windows",
+          "/tmux kill         Kill session",
+          "/tmux help         This help",
+        ].join("\n"), "info");
+        return;
+      }
+
+      ctx.ui.notify(`Unknown: /tmux ${sub}. Try /tmux help`, "warning");
     },
   });
 
@@ -602,14 +776,14 @@ export default function (pi: ExtensionAPI) {
 WHEN TO USE: Prefer this over bash for long-running or background commands: dev servers, file watchers, build processes, test suites, anything that runs continuously or takes more than a few seconds. Use bash for quick one-shot commands that complete immediately (ls, cat, grep, git status, etc.).
 
 Actions:
-- run: Run a command in a new tmux window. If the session already exists, a new window is added to it. When the command finishes, the agent is automatically notified with the exit code and recent output. Use silenceTimeout to get notified when the command may be waiting for input. Use 'attach: true' to auto-open a split pane so the user sees output live.
-- attach: Open a terminal view attached to the session (for the user to interact with). Supports iTerm2, Terminal.app, kitty, ghostty, WezTerm, and tmux nesting. Use 'mode' param to control layout: 'split-vertical' (default), 'tab', or 'split-horizontal'. Splits open inside the current iTerm2 pane.
+- run: Run a command in a new tmux window. If the session already exists, a new window is added to it. When the command finishes, the agent is automatically notified with the exit code and recent output. Use silenceTimeout to get notified when the command may be waiting for input. Use 'attach: true' to auto-open a split pane so the user sees output live (controlled by user's auto-attach setting).
+- attach: Open a terminal view attached to the session (for the user to interact with). Supports iTerm2, Terminal.app, kitty, ghostty, WezTerm, and tmux nesting. Use 'mode' param to control layout: 'split-vertical' (default), 'tab', or 'split-horizontal'. Splits open next to the pi pane.
 - peek: Capture recent output from tmux windows. Use window param to target a specific window, or omit for all. Use this to check on running processes.
 - list: List all windows in the session.
 - kill: Kill the entire session.
 - mute: Suppress silence notifications for a window (requires window index). Use when a command is expected to have long silence periods, not waiting for input.
 
-The user can also type /tmux to attach as a vertical split (default), /tmux tab to open in a new tab, /tmux split-horizontal to split horizontally, or /tmux:cat to select a window and bring its output into the conversation.`,
+The user can also type /tmux to open settings, /tmux attach to open a terminal split, /tmux tab to open in a new tab, /tmux split-horizontal to split horizontally, or /tmux cat to select a window and bring its output into the conversation.`,
     promptSnippet: "Manage a tmux session for the current project (one session per git root or working directory). Prefer this over bash for long-running or background commands.",
     promptGuidelines: [
       "Prefer tmux over bash for long-running or background commands: dev servers, file watchers, build processes, test suites, anything that runs continuously or takes more than a few seconds. Use bash for quick one-shot commands that complete immediately (ls, cat, grep, git status, etc.).",
@@ -674,14 +848,19 @@ The user can also type /tmux to attach as a vertical split (default), /tmux tab 
             });
           }
 
-          // Auto-attach if requested
+          // Auto-attach if requested — gated by user setting
           let attachMsg = "";
           if (params.attach) {
-            const mode = params.mode ?? "split-vertical";
-            try {
-              attachMsg = "\n" + attachToSession(ctx.cwd, mode);
-            } catch {
-              attachMsg = "\n(auto-attach failed — use /tmux to attach manually)";
+            const shouldAttach =
+              currentSettings.autoAttach === "always" ||
+              (currentSettings.autoAttach === "session-create" && !exists);
+            if (shouldAttach) {
+              const mode = (params.mode as AttachLayout | undefined) ?? currentSettings.defaultLayout;
+              try {
+                attachMsg = "\n" + attachToSession(ctx.cwd, { mode, tmuxWindow: windowIndex, piSessionId });
+              } catch {
+                attachMsg = "\n(auto-attach failed — use /tmux attach)";
+              }
             }
           }
 
@@ -706,8 +885,8 @@ The user can also type /tmux to attach as a vertical split (default), /tmux tab 
             };
           }
 
-          const mode = params.mode ?? "split-vertical";
-          const msg = attachToSession(ctx.cwd, mode);
+          const mode = (params.mode as AttachLayout | undefined) ?? currentSettings.defaultLayout;
+          const msg = attachToSession(ctx.cwd, { mode, piSessionId });
           return {
             content: [{ type: "text", text: msg }],
             details: {},
