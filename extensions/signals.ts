@@ -228,21 +228,27 @@ export async function stopWatching(): Promise<void> {
 // Command execution with signal wiring
 // ---------------------------------------------------------------------------
 
-/** Escape single quotes for use inside a single-quoted bash string. */
+/** Escape single quotes for use inside a single-quoted shell string. */
 function escapeSingleQuotes(s: string): string {
 	return s.replace(/'/g, "'\\''");
 }
 
+/** The user's configured shell, falling back to sh. */
+function userShell(): string {
+	return process.env["SHELL"] ?? "sh";
+}
+
 /**
- * Build the tmux startup command for a new window.
- * Runs the command non-interactively via bash -c so the terminal never
- * echoes a script path. After the command exits, exec $SHELL drops the
- * user into an interactive shell so they can inspect the window.
+ * Build the tmux startup command for a pane.
+ * Runs via the user's shell with -i so rc files are sourced and the full
+ * environment is available. Non-interactive execution means zero terminal echo.
+ * exec $SHELL at the end drops into an interactive shell for inspection.
  */
 function buildStartupCommand(command: string, completionFile: string): string {
+	const shell = userShell();
 	const escaped = escapeSingleQuotes(command);
 	const file = escapeSingleQuotes(completionFile);
-	return `bash -c '${escaped}; _ec=$?; echo $_ec > '"'"'${file}'"'"'; exec $SHELL'`;
+	return `${shell} -i -c '${escaped}; _ec=$?; echo $_ec > '"'"'${file}'"'"'; exec ${shell}'`;
 }
 
 /**
