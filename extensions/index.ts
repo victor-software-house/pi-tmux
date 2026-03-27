@@ -110,16 +110,15 @@ export default function (pi: ExtensionAPI) {
 						let reuseCandidate: (typeof windows)[number] | undefined;
 						if (reuse !== "never") {
 							if (params.name) {
-								// Named: prefer matching name, then fall back to last idle if reuse=last
+								// Explicit name: only reuse a window with that exact name — never fall back
 								reuseCandidate = windows
 									.filter((w) => w.title === params.name && isWindowIdle(session, w.index))
 									.at(-1);
-								if (!reuseCandidate && reuse === "last") {
-									reuseCandidate = [...windows].reverse().find((w) => isWindowIdle(session, w.index));
-								}
 							} else if (reuse === "last") {
-								// No name: reuse last idle window
+								// No name: reuse last idle window (auto-reuse)
 								reuseCandidate = [...windows].reverse().find((w) => isWindowIdle(session, w.index));
+							} else if (reuse === "named") {
+								// named policy with no name given: never reuse, always create new
 							}
 						}
 
