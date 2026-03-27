@@ -11,7 +11,7 @@ import type { AttachLayout, FeatureFlags, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
 import { run, tryRun, resolveProjectRoot, deriveSessionName, deriveWindowName, isSessionAlive, isWindowIdle, listWindows, captureOutput, tmuxEscape } from "./session.js";
 import { getActiveiTermSession, attachToSession, closeAttachedSessions } from "./terminal.js";
-import { initSignalDir, getSignalDir, startWatching, stopWatching, registerSilence, executeWithSignal, createWindowWithCommand, clearSilenceForWindow } from "./signals.js";
+import { initSignalDir, getSignalDir, startWatching, stopWatching, registerSilence, runCommandInPane, startCommandInFirstWindow, createWindowWithCommand, clearSilenceForWindow } from "./signals.js";
 import { buildParams, buildDescription, buildPromptSnippet, buildPromptGuidelines } from "./tool-builder.js";
 import { registerTmuxCommand, initCommandSettings } from "./command.js";
 
@@ -98,10 +98,10 @@ export default function (pi: ExtensionAPI) {
 					let reused = false;
 
 					if (!alive) {
-						// No session yet — always create
-						run(`tmux new-session -d -s ${session} -n "${tmuxEscape(windowName)}" -c "${windowCwd}"`);
+						// No session yet — create with a plain default window, then respawn with command
+						run(`tmux new-session -d -s ${session} -c "${windowCwd}"`);
 						run(`tmux set-option -t ${session} silence-action any`);
-						runId = executeWithSignal(dir, session, 0, params.command, silence);
+						runId = startCommandInFirstWindow(dir, session, windowName, windowCwd, params.command, silence);
 						windowIndex = 0;
 					} else {
 						const windows = listWindows(session);
@@ -124,11 +124,12 @@ export default function (pi: ExtensionAPI) {
 						}
 
 						if (reuseCandidate) {
-							// Reuse existing idle window — rename it and send the command
+							// Reuse existing idle window — respawn it with the command directly (no echo)
 							const idx = reuseCandidate.index;
 							tryRun(`tmux rename-window -t ${session}:${idx} "${tmuxEscape(windowName)}"`);
 							if (silence) tryRun(`tmux set-option -t ${session} silence-action any`);
-							runId = executeWithSignal(dir, session, idx, params.command, silence);
+							const paneCwd = tryRun(`tmux display -p -t ${session}:${idx} "#{pane_current_path}"`) ?? windowCwd;
+							runId = runCommandInPane(dir, session, idx, paneCwd, params.command, silence);
 							windowIndex = idx;
 							reused = true;
 						} else {

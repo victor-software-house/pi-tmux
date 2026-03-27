@@ -104,15 +104,10 @@ export function clearSilenceForWindow(session: string, windowIndex: number): boo
 // Notification dispatchers
 // ---------------------------------------------------------------------------
 
-/** Filter capture-pane output for notification display.
- * Strips blank lines and the script-path line that tmux echoes when send-keys
- * sends the wrapper script filename to the interactive shell.
- */
 function filterPaneOutput(raw: string | null, maxLines = 20): string {
-	const scriptPathRe = /^\/tmp\/pi-tmux\/.+\.sh$/;
 	return (raw ?? "")
 		.split("\n")
-		.filter((l) => l.trim() && !scriptPathRe.test(l.trim()))
+		.filter((l) => l.trim())
 		.slice(-maxLines)
 		.join("\n");
 }
@@ -233,40 +228,50 @@ export async function stopWatching(): Promise<void> {
 // Command execution with signal wiring
 // ---------------------------------------------------------------------------
 
-/**
- * Write a wrapper script for a command and execute it in a tmux window.
- * The script prints itself for transparency, runs the command, then writes
- * the exit code to a signal file for completion detection.
- *
- * Returns a unique run ID for this command invocation.
- */
-export function executeWithSignal(dir: string, session: string, windowIndex: number, command: string, silence?: SilenceConfig): string {
-	const scriptsDir = join(dir, "scripts");
-	mkdirSync(scriptsDir, { recursive: true });
+/** Escape single quotes for use inside a single-quoted bash string. */
+function escapeSingleQuotes(s: string): string {
+	return s.replace(/'/g, "'\\''");
+}
 
+/**
+ * Build the tmux startup command for a new window.
+ * Runs the command non-interactively via bash -c so the terminal never
+ * echoes a script path. After the command exits, exec $SHELL drops the
+ * user into an interactive shell so they can inspect the window.
+ */
+function buildStartupCommand(command: string, completionFile: string): string {
+	const escaped = escapeSingleQuotes(command);
+	const file = escapeSingleQuotes(completionFile);
+	return `bash -c '${escaped}; _ec=$?; echo $_ec > '"'"'${file}'"'"'; exec $SHELL'`;
+}
+
+/**
+ * Run a command in a tmux pane using respawn-pane (or new-window for new panes).
+ * bash -c runs non-interactively — zero terminal echo.
+ * exec $SHELL at the end keeps the window alive for inspection.
+ * Works for both new windows and reused idle windows.
+ */
+export function runCommandInPane(
+	dir: string,
+	session: string,
+	windowIndex: number,
+	cwd: string,
+	command: string,
+	silence?: SilenceConfig,
+): string {
 	const runId = randomBytes(4).toString("hex");
 	const completionFile = join(dir, `${session}.${windowIndex}.${runId}`);
-	const scriptFile = join(scriptsDir, `${session}.${windowIndex}.${runId}.sh`);
+	const startupCmd = buildStartupCommand(command, completionFile);
 
-	writeFileSync(
-		scriptFile,
-		`#!/usr/bin/env bash\n${command}\n_exit_code=$?\necho $_exit_code > "${completionFile}"\n`,
-		{ mode: 0o755 },
-	);
-
-	run(`tmux send-keys -t ${session}:${windowIndex} "${tmuxEscape(scriptFile)}" C-m`);
-
-	if (silence && silence.timeout > 0) {
-		const silenceFile = join(dir, `silence.${session}.${windowIndex}.${runId}`);
-		run(`tmux set-option -w -t ${session}:${windowIndex} monitor-silence ${silence.timeout}`);
-		const alertHook = `run-shell 'echo 1 > "${tmuxEscape(silenceFile)}"' ; kill-session -C -t ${session}`;
-		run(`tmux set-hook -w -t ${session}:${windowIndex} alert-silence "${tmuxEscape(alertHook)}"`);
-	}
-
+	run(`tmux respawn-pane -t ${session}:${windowIndex} -k -c "${cwd}" "${tmuxEscape(startupCmd)}"`);
+	wireSilence(dir, session, windowIndex, runId, silence);
 	return runId;
 }
 
-/** Create a new tmux window and execute a command in it with signal wiring. */
+/**
+ * Create a new tmux window and immediately start the command in it.
+ * Passes the startup command directly to new-window — no intermediate shell.
+ */
 export function createWindowWithCommand(
 	dir: string,
 	session: string,
@@ -275,9 +280,40 @@ export function createWindowWithCommand(
 	windowName: string,
 	silence?: SilenceConfig,
 ): { index: number; runId: string } {
+	const runId = randomBytes(4).toString("hex");
 	const name = windowName.slice(0, 30);
+
+	// Create window first to get the index, then respawn with the real signal path
 	const raw = run(`tmux new-window -t ${session} -n "${tmuxEscape(name)}" -c "${cwd}" -P -F "#{window_index}"`);
 	const index = parseInt(raw, 10);
-	const runId = executeWithSignal(dir, session, index, command, silence);
+
+	const completionFile = join(dir, `${session}.${index}.${runId}`);
+	const startupCmd = buildStartupCommand(command, completionFile);
+	run(`tmux respawn-pane -t ${session}:${index} -k -c "${cwd}" "${tmuxEscape(startupCmd)}"`);
+
+	wireSilence(dir, session, index, runId, silence);
 	return { index, runId };
+}
+
+/**
+ * Start a command in window 0 of a freshly created session.
+ */
+export function startCommandInFirstWindow(
+	dir: string,
+	session: string,
+	windowName: string,
+	cwd: string,
+	command: string,
+	silence?: SilenceConfig,
+): string {
+	run(`tmux rename-window -t ${session}:0 "${tmuxEscape(windowName)}"`);
+	return runCommandInPane(dir, session, 0, cwd, command, silence);
+}
+
+function wireSilence(dir: string, session: string, windowIndex: number, runId: string, silence?: SilenceConfig): void {
+	if (!silence || silence.timeout <= 0) return;
+	const silenceFile = join(dir, `silence.${session}.${windowIndex}.${runId}`);
+	run(`tmux set-option -w -t ${session}:${windowIndex} monitor-silence ${silence.timeout}`);
+	const alertHook = `run-shell 'echo 1 > "${tmuxEscape(silenceFile)}"' ; kill-session -C -t ${session}`;
+	run(`tmux set-hook -w -t ${session}:${windowIndex} alert-silence "${tmuxEscape(alertHook)}"`);
 }
