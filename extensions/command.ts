@@ -100,8 +100,7 @@ async function openSettingsPanel(ctx: ExtensionCommandContext): Promise<void> {
 
 	let changed = false;
 
-	await ctx.ui.custom(
-		(tui, theme, _kb, done) => {
+	await ctx.ui.custom((tui, theme, _kb, done) => {
 			const maxValues = Array.from({ length: 10 }, (_, i) => String((i + 1) * 5));
 			const currentMax = String(currentSettings.maxWindows);
 			if (!maxValues.includes(currentMax)) {
@@ -147,17 +146,7 @@ async function openSettingsPanel(ctx: ExtensionCommandContext): Promise<void> {
 					tui.requestRender();
 				},
 			};
-		},
-		{
-			overlay: true,
-			overlayOptions: {
-				anchor: "center",
-				width: 80,
-				maxHeight: "85%",
-				margin: 1,
-			},
-		},
-	);
+	});
 
 	if (changed) {
 		const reload = await ctx.ui.confirm("Reload Required", "Settings changed. Reload pi to update tool capabilities?");
