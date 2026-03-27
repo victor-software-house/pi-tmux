@@ -215,6 +215,29 @@ function getActiveiTermWindow(): string | null {
   return match?.[1] ?? null;
 }
 
+/** Track iTerm session IDs created by attach operations, keyed by tmux session name. */
+const attachedItermSessions = new Map<string, Set<string>>();
+
+function trackAttachedSession(tmuxSession: string, itermSessionId: string): void {
+  let set = attachedItermSessions.get(tmuxSession);
+  if (!set) {
+    set = new Set();
+    attachedItermSessions.set(tmuxSession, set);
+  }
+  set.add(itermSessionId);
+}
+
+function closeAttachedSessions(tmuxSession: string): void {
+  const ids = attachedItermSessions.get(tmuxSession);
+  if (!ids || !isIt2apiAvailable()) return;
+  for (const id of ids) {
+    // Send exit to close the pane — exec'd shells will already be dead after
+    // tmux kill-session, but this handles edge cases (osascript fallback, etc.)
+    execSafe(`${IT2API} send-text "${id}" "exit\n"`);
+  }
+  attachedItermSessions.delete(tmuxSession);
+}
+
 interface AttachOptions {
   /** tmux session name */
   session: string;
@@ -267,6 +290,7 @@ function openTerminalTab(opts: AttachOptions): string {
           const result = execSafe(`${IT2API} split-pane${flag} "${targetSession}"`);
           const newId = result?.match(/id=([0-9A-F-]{36})/)?.[1];
           if (newId) {
+            trackAttachedSession(session, newId);
             execSafe(`${IT2API} send-text "${newId}" "exec ${escapeForTmux(attachCmd)}\n"`);
             return `Opened iTerm2 ${label} attached to ${session}.`;
           }
@@ -276,6 +300,7 @@ function openTerminalTab(opts: AttachOptions): string {
           const result = execSafe(`${IT2API} create-tab${windowFlag}`);
           const newId = result?.match(/id=([0-9A-F-]{36})/)?.[1];
           if (newId) {
+            trackAttachedSession(session, newId);
             execSafe(`${IT2API} send-text "${newId}" "exec tmux -CC attach -t ${escapeForTmux(session)}\n"`);
             return `Opened iTerm2 tab attached to ${session}.`;
           }
@@ -741,6 +766,7 @@ export default function (pi: ExtensionAPI) {
       // --- Kill ---
       if (sub === "kill") {
         if (!sessionExists(session)) { ctx.ui.notify("No tmux session to kill.", "info"); return; }
+        closeAttachedSessions(session);
         exec(`tmux kill-session -t ${session}`);
         ctx.ui.notify(`Killed session ${session}.`, "info");
         return;
@@ -951,6 +977,7 @@ The user can also type /tmux to open settings, /tmux attach to open a terminal s
             };
           }
 
+          closeAttachedSessions(session);
           exec(`tmux kill-session -t ${session}`);
           return {
             content: [{ type: "text", text: `Killed session ${session}.` }],
