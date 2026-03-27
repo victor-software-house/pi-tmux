@@ -228,27 +228,34 @@ export async function stopWatching(): Promise<void> {
 // Command execution with signal wiring
 // ---------------------------------------------------------------------------
 
-/** Escape single quotes for use inside a single-quoted shell string. */
-function escapeSingleQuotes(s: string): string {
-	return s.replace(/'/g, "'\\''");
-}
-
 /** The user's configured shell, falling back to sh. */
 function userShell(): string {
 	return process.env["SHELL"] ?? "sh";
 }
 
 /**
- * Build the tmux startup command for a pane.
- * Runs via the user's shell with -i so rc files are sourced and the full
- * environment is available. Non-interactive execution means zero terminal echo.
- * exec $SHELL at the end drops into an interactive shell for inspection.
+ * Write a script file for the command and return the path.
+ * Using a file avoids quoting hell across the Node→sh→tmux→shell chain.
+ * The path is a simple alphanum string — safe to embed anywhere.
  */
-function buildStartupCommand(command: string, completionFile: string): string {
+function writeCommandScript(dir: string, completionFile: string, command: string): string {
+	const scriptsDir = join(dir, "scripts");
+	mkdirSync(scriptsDir, { recursive: true });
+	const id = randomBytes(4).toString("hex");
+	const scriptPath = join(scriptsDir, `${id}.sh`);
+	writeFileSync(scriptPath, `${command}\n_ec=$?\necho $_ec > '${completionFile}'\n`, { mode: 0o755 });
+	return scriptPath;
+}
+
+/**
+ * Build the tmux startup command for a pane.
+ * Passes the script file path to the user's shell — no quoting issues.
+ * The shell runs the script, captures the exit code, then exec's an
+ * interactive shell so the window stays alive for inspection.
+ */
+function buildStartupCommand(scriptPath: string): string {
 	const shell = userShell();
-	const escaped = escapeSingleQuotes(command);
-	const file = escapeSingleQuotes(completionFile);
-	return `${shell} -i -c '${escaped}; _ec=$?; echo $_ec > '"'"'${file}'"'"'; exec ${shell}'`;
+	return `${shell} '${scriptPath}'; exec ${shell}`;
 }
 
 /**
@@ -267,7 +274,8 @@ export function runCommandInPane(
 ): string {
 	const runId = randomBytes(4).toString("hex");
 	const completionFile = join(dir, `${session}.${windowIndex}.${runId}`);
-	const startupCmd = buildStartupCommand(command, completionFile);
+	const scriptPath = writeCommandScript(dir, completionFile, command);
+	const startupCmd = buildStartupCommand(scriptPath);
 
 	run(`tmux respawn-pane -t ${session}:${windowIndex} -k -c "${cwd}" "${tmuxEscape(startupCmd)}"`);
 	wireSilence(dir, session, windowIndex, runId, silence);
@@ -294,7 +302,8 @@ export function createWindowWithCommand(
 	const index = parseInt(raw, 10);
 
 	const completionFile = join(dir, `${session}.${index}.${runId}`);
-	const startupCmd = buildStartupCommand(command, completionFile);
+	const scriptPath = writeCommandScript(dir, completionFile, command);
+	const startupCmd = buildStartupCommand(scriptPath);
 	run(`tmux respawn-pane -t ${session}:${index} -k -c "${cwd}" "${tmuxEscape(startupCmd)}"`);
 
 	wireSilence(dir, session, index, runId, silence);
