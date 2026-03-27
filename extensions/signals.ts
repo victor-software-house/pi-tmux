@@ -52,7 +52,7 @@ function filterPaneOutput(raw: string, maxLines = 20): string {
  *   - "followUp": waits for the current turn to finish, then triggers a new turn
  *   - "nextTurn": queues silently until the next user message
  */
-export function trackCompletion(pi: ExtensionAPI, session: string, windowIndex: number, deliverAs: CompletionDelivery = "followUp"): void {
+export function trackCompletion(pi: ExtensionAPI, session: string, windowIndex: number, deliverAs: CompletionDelivery = "followUp", triggerTurn = true): void {
 	const key = trackerKey(session, windowIndex);
 
 	// Cancel any existing tracker for this window (new command supersedes)
@@ -102,7 +102,6 @@ export function trackCompletion(pi: ExtensionAPI, session: string, windowIndex: 
 		const output = captureOutput(session, windowIndex);
 		const trimmed = filterPaneOutput(output);
 
-		const triggerTurn = deliverAs !== "nextTurn";
 		pi.sendMessage(
 			{
 				customType: "tmux-completion",

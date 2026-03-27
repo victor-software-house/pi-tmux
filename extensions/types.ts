@@ -12,6 +12,7 @@ export interface TmuxSettings {
 	windowReuse: WindowReuse;
 	autoFocus: AutoFocus;
 	completionDelivery: CompletionDelivery;
+	completionTriggerTurn: boolean;
 }
 
 export interface FeatureFlags {

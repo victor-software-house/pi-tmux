@@ -18,6 +18,7 @@ const DEFAULT_SETTINGS: TmuxSettings = {
 	windowReuse: "last",
 	autoFocus: "always",
 	completionDelivery: "followUp",
+	completionTriggerTurn: true,
 };
 
 const SETTINGS_PATH = join(homedir(), ".pi", "agent", ".pi-tmux.json");
@@ -39,6 +40,7 @@ export function parseSettings(raw: unknown): TmuxSettings {
 		windowReuse: WINDOW_REUSE_VALUES.includes(r?.windowReuse as WindowReuse) ? (r.windowReuse as WindowReuse) : DEFAULT_SETTINGS.windowReuse,
 		autoFocus: AUTO_FOCUS_VALUES.includes(r?.autoFocus as AutoFocus) ? (r.autoFocus as AutoFocus) : DEFAULT_SETTINGS.autoFocus,
 		completionDelivery: COMPLETION_DELIVERY_VALUES.includes(r?.completionDelivery as CompletionDelivery) ? (r.completionDelivery as CompletionDelivery) : DEFAULT_SETTINGS.completionDelivery,
+		completionTriggerTurn: typeof r?.completionTriggerTurn === "boolean" ? r.completionTriggerTurn : DEFAULT_SETTINGS.completionTriggerTurn,
 	};
 }
 

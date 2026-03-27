@@ -127,7 +127,7 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					// Start non-blocking completion tracking
-					trackCompletion(pi, session, windowIndex, currentSettings.completionDelivery);
+					trackCompletion(pi, session, windowIndex, currentSettings.completionDelivery, currentSettings.completionTriggerTurn);
 
 					// Wire silence detection if requested
 					if (silence) registerSilence(session, windowIndex, silence);

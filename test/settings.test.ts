@@ -39,7 +39,7 @@ const FULL_SETTINGS: TmuxSettings = {
 	allowMute: false,
 	maxWindows: 5,
 	windowReuse: "named",
-	autoFocus: "never", completionDelivery: "followUp",
+	autoFocus: "never", completionDelivery: "followUp", completionTriggerTurn: true,
 };
 
 // ---------------------------------------------------------------------------
@@ -136,17 +136,17 @@ describe("parseSettings()", () => {
 	});
 
 	test("accepts 'last' windowReuse", () => {
-		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "last", autoFocus: "always", completionDelivery: "followUp" });
+		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "last", autoFocus: "always", completionDelivery: "followUp", completionTriggerTurn: true });
 		expect(result.windowReuse).toBe("last");
 	});
 
 	test("accepts 'named' windowReuse", () => {
-		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "named", autoFocus: "always", completionDelivery: "followUp" });
+		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "named", autoFocus: "always", completionDelivery: "followUp", completionTriggerTurn: true });
 		expect(result.windowReuse).toBe("named");
 	});
 
 	test("accepts 'never' windowReuse", () => {
-		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "never", autoFocus: "always", completionDelivery: "followUp" });
+		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "never", autoFocus: "always", completionDelivery: "followUp", completionTriggerTurn: true });
 		expect(result.windowReuse).toBe("never");
 	});
 
@@ -206,13 +206,13 @@ describe("loadSettings()", () => {
 
 	test("round-trips windowReuse: never", () => {
 		const path = tempSettingsPath();
-		saveSettings({ ...FULL_SETTINGS, windowReuse: "never", autoFocus: "always", completionDelivery: "followUp" }, path);
+		saveSettings({ ...FULL_SETTINGS, windowReuse: "never", autoFocus: "always", completionDelivery: "followUp", completionTriggerTurn: true }, path);
 		expect(loadSettings(path).windowReuse).toBe("never");
 	});
 
 	test("round-trips windowReuse: last", () => {
 		const path = tempSettingsPath();
-		saveSettings({ ...FULL_SETTINGS, windowReuse: "last", autoFocus: "always", completionDelivery: "followUp" }, path);
+		saveSettings({ ...FULL_SETTINGS, windowReuse: "last", autoFocus: "always", completionDelivery: "followUp", completionTriggerTurn: true }, path);
 		expect(loadSettings(path).windowReuse).toBe("last");
 	});
 
@@ -230,31 +230,31 @@ describe("loadSettings()", () => {
 
 describe("getFlags()", () => {
 	test("canAttach is false when autoAttach is 'never'", () => {
-		const flags = getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last", autoFocus: "always", completionDelivery: "followUp" });
+		const flags = getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last", autoFocus: "always", completionDelivery: "followUp", completionTriggerTurn: true });
 		expect(flags.canAttach).toBe(false);
 		expect(flags.autoAttach).toBe("never");
 	});
 
 	test("canAttach is true when autoAttach is 'session-create'", () => {
-		const flags = getFlags({ autoAttach: "session-create", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last", autoFocus: "always", completionDelivery: "followUp" });
+		const flags = getFlags({ autoAttach: "session-create", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last", autoFocus: "always", completionDelivery: "followUp", completionTriggerTurn: true });
 		expect(flags.canAttach).toBe(true);
 		expect(flags.autoAttach).toBe("session-create");
 	});
 
 	test("canAttach is true when autoAttach is 'always'", () => {
-		const flags = getFlags({ autoAttach: "always", defaultLayout: "tab", allowMute: false, maxWindows: 5, windowReuse: "last", autoFocus: "always", completionDelivery: "followUp" });
+		const flags = getFlags({ autoAttach: "always", defaultLayout: "tab", allowMute: false, maxWindows: 5, windowReuse: "last", autoFocus: "always", completionDelivery: "followUp", completionTriggerTurn: true });
 		expect(flags.canAttach).toBe(true);
 		expect(flags.autoAttach).toBe("always");
 	});
 
 	test("canMute mirrors allowMute", () => {
-		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last", autoFocus: "always", completionDelivery: "followUp" }).canMute).toBe(true);
-		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: false, maxWindows: 10, windowReuse: "last", autoFocus: "always", completionDelivery: "followUp" }).canMute).toBe(false);
+		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last", autoFocus: "always", completionDelivery: "followUp", completionTriggerTurn: true }).canMute).toBe(true);
+		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: false, maxWindows: 10, windowReuse: "last", autoFocus: "always", completionDelivery: "followUp", completionTriggerTurn: true }).canMute).toBe(false);
 	});
 
 	test("windowReuse passes through to flags", () => {
-		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "named", autoFocus: "always", completionDelivery: "followUp" }).windowReuse).toBe("named");
-		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "never", autoFocus: "always", completionDelivery: "followUp" }).windowReuse).toBe("never");
+		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "named", autoFocus: "always", completionDelivery: "followUp", completionTriggerTurn: true }).windowReuse).toBe("named");
+		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "never", autoFocus: "always", completionDelivery: "followUp", completionTriggerTurn: true }).windowReuse).toBe("never");
 	});
 });
 

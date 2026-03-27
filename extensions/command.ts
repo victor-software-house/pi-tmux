@@ -179,6 +179,8 @@ function applySettingChange(id: string, newValue: string): void {
 		currentSettings.autoFocus = newValue;
 	} else if (id === "completionDelivery" && isCompletionDelivery(newValue)) {
 		currentSettings.completionDelivery = newValue;
+	} else if (id === "completionTriggerTurn") {
+		currentSettings.completionTriggerTurn = newValue === "on";
 	}
 }
 
@@ -264,6 +266,15 @@ function completionDeliveryDescription(): string {
 	return COMPLETION_DELIVERY_DESCRIPTIONS[currentSettings.completionDelivery] ?? "";
 }
 
+const COMPLETION_TRIGGER_TURN_DESCRIPTIONS: Record<string, string> = {
+	on: "Wake the agent and start a new LLM turn when idle",
+	off: "Append to history silently; agent only sees it on next turn",
+};
+
+function completionTriggerTurnDescription(): string {
+	return COMPLETION_TRIGGER_TURN_DESCRIPTIONS[currentSettings.completionTriggerTurn ? "on" : "off"] ?? "";
+}
+
 function windowReuseDescription(): string {
 	return WINDOW_REUSE_DESCRIPTIONS[currentSettings.windowReuse] ?? "";
 }
@@ -296,6 +307,9 @@ function refreshDescriptions(items: MutableItem[]): void {
 				break;
 			case "completionDelivery":
 				item.description = completionDeliveryDescription();
+				break;
+			case "completionTriggerTurn":
+				item.description = completionTriggerTurnDescription();
 				break;
 		}
 	}
@@ -351,6 +365,13 @@ function buildSettingItems(maxValues: string[]): MutableItem[] & { id: string; l
 			description: completionDeliveryDescription(),
 			currentValue: currentSettings.completionDelivery,
 			values: [...COMPLETION_DELIVERY_VALUES],
+		},
+		{
+			id: "completionTriggerTurn",
+			label: "Trigger agent turn on completion",
+			description: completionTriggerTurnDescription(),
+			currentValue: currentSettings.completionTriggerTurn ? "on" : "off",
+			values: ["on", "off"],
 		},
 	];
 }
