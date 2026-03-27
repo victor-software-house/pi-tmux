@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { buildActions, buildDescription, buildPromptSnippet, buildPromptGuidelines } from "../extensions/tool-builder.js";
+import { buildActions, buildDescription, buildPromptSnippet, buildPromptGuidelines, buildParams } from "../extensions/tool-builder.js";
 import type { FeatureFlags } from "../extensions/types.js";
 
 const ALL_ENABLED: FeatureFlags = { canAttach: true, canMute: true };
 const ATTACH_ONLY: FeatureFlags = { canAttach: true, canMute: false };
 const MUTE_ONLY: FeatureFlags = { canAttach: false, canMute: true };
 const ALL_DISABLED: FeatureFlags = { canAttach: false, canMute: false };
+
+// ---------------------------------------------------------------------------
+// buildActions()
+// ---------------------------------------------------------------------------
 
 describe("buildActions()", () => {
 	test("includes attach and mute when both enabled", () => {
@@ -46,6 +50,44 @@ describe("buildActions()", () => {
 	});
 });
 
+// ---------------------------------------------------------------------------
+// buildParams()
+// ---------------------------------------------------------------------------
+
+describe("buildParams()", () => {
+	test("name param description does not require name", () => {
+		const schema = buildParams(ALL_ENABLED);
+		const nameDesc = (schema.properties.name as { description?: string }).description ?? "";
+		expect(nameDesc).not.toContain("REQUIRED");
+		expect(nameDesc).toContain("Optional");
+	});
+
+	test("name param description mentions reuse semantics", () => {
+		const schema = buildParams(ALL_ENABLED);
+		const nameDesc = (schema.properties.name as { description?: string }).description ?? "";
+		expect(nameDesc.toLowerCase()).toContain("reuse");
+	});
+
+	test("command param is present", () => {
+		const schema = buildParams(ALL_ENABLED);
+		expect(schema.properties.command).toBeDefined();
+	});
+
+	test("attach param present when canAttach", () => {
+		const schema = buildParams(ALL_ENABLED);
+		expect((schema.properties as Record<string, unknown>).attach).toBeDefined();
+	});
+
+	test("attach param absent when canAttach is false", () => {
+		const schema = buildParams(ALL_DISABLED);
+		expect((schema.properties as Record<string, unknown>).attach).toBeUndefined();
+	});
+});
+
+// ---------------------------------------------------------------------------
+// buildDescription()
+// ---------------------------------------------------------------------------
+
 describe("buildDescription()", () => {
 	test("mentions attach action when canAttach is true", () => {
 		const desc = buildDescription(ALL_ENABLED);
@@ -75,6 +117,10 @@ describe("buildDescription()", () => {
 	});
 });
 
+// ---------------------------------------------------------------------------
+// buildPromptSnippet()
+// ---------------------------------------------------------------------------
+
 describe("buildPromptSnippet()", () => {
 	test("includes attach guidance when enabled", () => {
 		const snippet = buildPromptSnippet(ALL_ENABLED);
@@ -94,6 +140,10 @@ describe("buildPromptSnippet()", () => {
 		}
 	});
 });
+
+// ---------------------------------------------------------------------------
+// buildPromptGuidelines()
+// ---------------------------------------------------------------------------
 
 describe("buildPromptGuidelines()", () => {
 	test("includes attach guideline when canAttach is true", () => {
@@ -120,15 +170,32 @@ describe("buildPromptGuidelines()", () => {
 		expect(hasMuteGuideline).toBe(false);
 	});
 
-	test("always includes core guidelines", () => {
+	test("always includes bash comparison guideline", () => {
 		for (const flags of [ALL_ENABLED, ALL_DISABLED]) {
 			const guidelines = buildPromptGuidelines(flags);
-			const hasBashComparison = guidelines.some((g) => g.includes("Use bash for quick"));
-			const hasSilenceTimeout = guidelines.some((g) => g.includes("silenceTimeout"));
-			const hasNoKill = guidelines.some((g) => g.includes("Do not kill sessions"));
-			expect(hasBashComparison).toBe(true);
-			expect(hasSilenceTimeout).toBe(true);
-			expect(hasNoKill).toBe(true);
+			expect(guidelines.some((g) => g.includes("Use bash for quick"))).toBe(true);
+		}
+	});
+
+	test("always includes silenceTimeout guideline", () => {
+		for (const flags of [ALL_ENABLED, ALL_DISABLED]) {
+			const guidelines = buildPromptGuidelines(flags);
+			expect(guidelines.some((g) => g.includes("silenceTimeout"))).toBe(true);
+		}
+	});
+
+	test("always includes no-kill guideline", () => {
+		for (const flags of [ALL_ENABLED, ALL_DISABLED]) {
+			const guidelines = buildPromptGuidelines(flags);
+			expect(guidelines.some((g) => g.includes("Do not kill sessions"))).toBe(true);
+		}
+	});
+
+	test("includes window reuse guidance", () => {
+		for (const flags of [ALL_ENABLED, ALL_DISABLED]) {
+			const guidelines = buildPromptGuidelines(flags);
+			const hasReuseGuideline = guidelines.some((g) => g.toLowerCase().includes("reuse"));
+			expect(hasReuseGuideline).toBe(true);
 		}
 	});
 });

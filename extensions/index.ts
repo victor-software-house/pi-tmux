@@ -9,7 +9,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import type { AttachLayout, FeatureFlags, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
-import { run, tryRun, resolveProjectRoot, deriveSessionName, isSessionAlive, isWindowIdle, listWindows, captureOutput, tmuxEscape } from "./session.js";
+import { run, tryRun, resolveProjectRoot, deriveSessionName, deriveWindowName, isSessionAlive, isWindowIdle, listWindows, captureOutput, tmuxEscape } from "./session.js";
 import { getActiveiTermSession, attachToSession, closeAttachedSessions } from "./terminal.js";
 import { initSignalDir, getSignalDir, startWatching, stopWatching, registerSilence, executeWithSignal, createWindowWithCommand, clearSilenceForWindow } from "./signals.js";
 import { buildParams, buildDescription, buildPromptSnippet, buildPromptGuidelines } from "./tool-builder.js";
@@ -82,7 +82,7 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					// Auto-derive window name from command if not provided
-					const windowName = (params.name ?? params.command.trim().split(/[|;&\s]/)[0]?.split("/").pop() ?? "shell").slice(0, 30);
+					const windowName = params.name ? params.name.slice(0, 30) : deriveWindowName(params.command);
 					const alive = isSessionAlive(session);
 					const reuse = currentSettings.windowReuse;
 

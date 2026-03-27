@@ -22,29 +22,34 @@ export function getConfigPath(): string {
 	return SETTINGS_PATH;
 }
 
-export function loadSettings(): TmuxSettings {
+export function parseSettings(raw: unknown): TmuxSettings {
+	const r = raw as Record<string, unknown>;
+	return {
+		autoAttach: AUTO_ATTACH_VALUES.includes(r?.autoAttach as AutoAttachMode) ? (r.autoAttach as AutoAttachMode) : DEFAULT_SETTINGS.autoAttach,
+		defaultLayout: LAYOUT_VALUES.includes(r?.defaultLayout as AttachLayout) ? (r.defaultLayout as AttachLayout) : DEFAULT_SETTINGS.defaultLayout,
+		allowMute: typeof r?.allowMute === "boolean" ? r.allowMute : DEFAULT_SETTINGS.allowMute,
+		maxWindows:
+			typeof r?.maxWindows === "number" && r.maxWindows >= MAX_WINDOWS_RANGE.min && r.maxWindows <= MAX_WINDOWS_RANGE.max
+				? Math.floor(r.maxWindows)
+				: DEFAULT_SETTINGS.maxWindows,
+		windowReuse: WINDOW_REUSE_VALUES.includes(r?.windowReuse as WindowReuse) ? (r.windowReuse as WindowReuse) : DEFAULT_SETTINGS.windowReuse,
+	};
+}
+
+export function loadSettings(filePath = SETTINGS_PATH): TmuxSettings {
 	try {
-		if (!existsSync(SETTINGS_PATH)) return { ...DEFAULT_SETTINGS };
-		const raw = JSON.parse(readFileSync(SETTINGS_PATH, "utf-8"));
-		return {
-			autoAttach: AUTO_ATTACH_VALUES.includes(raw?.autoAttach) ? raw.autoAttach : DEFAULT_SETTINGS.autoAttach,
-			defaultLayout: LAYOUT_VALUES.includes(raw?.defaultLayout) ? raw.defaultLayout : DEFAULT_SETTINGS.defaultLayout,
-			allowMute: typeof raw?.allowMute === "boolean" ? raw.allowMute : DEFAULT_SETTINGS.allowMute,
-			maxWindows:
-				typeof raw?.maxWindows === "number" && raw.maxWindows >= MAX_WINDOWS_RANGE.min && raw.maxWindows <= MAX_WINDOWS_RANGE.max
-					? Math.floor(raw.maxWindows)
-					: DEFAULT_SETTINGS.maxWindows,
-			windowReuse: WINDOW_REUSE_VALUES.includes(raw?.windowReuse) ? raw.windowReuse : DEFAULT_SETTINGS.windowReuse,
-		};
+		if (!existsSync(filePath)) return { ...DEFAULT_SETTINGS };
+		const raw = JSON.parse(readFileSync(filePath, "utf-8"));
+		return parseSettings(raw);
 	} catch {
 		return { ...DEFAULT_SETTINGS };
 	}
 }
 
-export function saveSettings(settings: TmuxSettings): void {
+export function saveSettings(settings: TmuxSettings, filePath = SETTINGS_PATH): void {
 	const dir = join(homedir(), ".pi", "agent");
 	mkdirSync(dir, { recursive: true });
-	writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + "\n");
+	writeFileSync(filePath, JSON.stringify(settings, null, 2) + "\n");
 }
 
 export function getFlags(settings: TmuxSettings): FeatureFlags {

@@ -100,6 +100,14 @@ export function isWindowIdle(sessionName: string, windowIndex: number): boolean 
 	return false;
 }
 
+/**
+ * Derive a short window name from a shell command string.
+ * Takes the first word (executable name without path), capped at 30 chars.
+ */
+export function deriveWindowName(command: string): string {
+	return (command.trim().split(/[|;&\s]/)[0]?.split("/").pop() || "shell").slice(0, 30);
+}
+
 /** Escape double quotes for use inside tmux command strings. */
 export function tmuxEscape(s: string): string {
 	return s.replace(/"/g, '\\"');
