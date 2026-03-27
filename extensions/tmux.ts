@@ -64,6 +64,11 @@ const TmuxParams = Type.Object({
       description: "For 'run' action: auto-attach a terminal split pane so the user sees output live. Default false. Set to true when the user explicitly asks to see tmux output or asks to 'use tmux'.",
     })
   ),
+  cwd: Type.Optional(
+    Type.String({
+      description: "Working directory for the command (for 'run' action). Defaults to project root (git root or pi's cwd).",
+    })
+  ),
 });
 
 type TmuxInput = Static<typeof TmuxParams>;
@@ -320,10 +325,10 @@ echo $__rc > "${signalFile}"
   return id;
 }
 
-function addWindow(signalDir: string, session: string, gitRoot: string, cmd: string, name?: string, silence?: SilenceConfig): { index: number; id: string } {
+function addWindow(signalDir: string, session: string, cwd: string, cmd: string, name?: string, silence?: SilenceConfig): { index: number; id: string } {
   const winName = (name ?? cmd.split(/[|;&\s]/)[0].split("/").pop() ?? "shell").slice(0, 30);
   const raw = exec(
-    `tmux new-window -t ${session} -n "${escapeForTmux(winName)}" -c "${gitRoot}" -P -F "#{window_index}"`
+    `tmux new-window -t ${session} -n "${escapeForTmux(winName)}" -c "${cwd}" -P -F "#{window_index}"`
   );
   const idx = parseInt(raw);
   const id = sendCommandWithSignal(signalDir, session, idx, cmd, silence);
@@ -639,12 +644,13 @@ The user can also type /tmux to attach as a vertical split (default), /tmux tab 
           const silence: SilenceConfig | undefined = timeout > 0
             ? { timeout, factor: params.silenceBackoffFactor ?? 1.5, cap: params.silenceBackoffCap ?? 300 }
             : undefined;
+          const windowCwd = params.cwd ?? projectRoot;
           let windowIndex: number;
           let windowId: string;
 
           if (!exists) {
             const winName = (params.name ?? params.command.split(/[|;&\s]/)[0].split("/").pop() ?? "shell").slice(0, 30);
-            exec(`tmux new-session -d -s ${session} -n "${escapeForTmux(winName)}" -c "${projectRoot}"`);
+            exec(`tmux new-session -d -s ${session} -n "${escapeForTmux(winName)}" -c "${windowCwd}"`);
             // Enable silence alerts for all windows regardless of which is current
             exec(`tmux set-option -t ${session} silence-action any`);
             windowId = sendCommandWithSignal(signalDir, session, 0, params.command, silence);
@@ -654,7 +660,7 @@ The user can also type /tmux to attach as a vertical split (default), /tmux tab 
             if (silence) {
               execSafe(`tmux set-option -t ${session} silence-action any`);
             }
-            const result = addWindow(signalDir, session, projectRoot, params.command, params.name, silence);
+            const result = addWindow(signalDir, session, windowCwd, params.command, params.name, silence);
             windowIndex = result.index;
             windowId = result.id;
           }
