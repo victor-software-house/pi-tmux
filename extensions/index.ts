@@ -186,7 +186,7 @@ export default function (pi: ExtensionAPI) {
 					return { content: [{ type: "text", text: msg }], details: {} };
 				}
 
-				case "select": {
+				case "focus": {
 					if (!isSessionAlive(session)) {
 						return { content: [{ type: "text", text: `No active session '${session}'.` }], details: {} };
 					}
