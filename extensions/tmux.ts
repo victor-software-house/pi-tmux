@@ -231,8 +231,10 @@ function closeAttachedSessions(tmuxSession: string): void {
   const ids = attachedItermSessions.get(tmuxSession);
   if (!ids || !isIt2apiAvailable()) return;
   for (const id of ids) {
-    // Send exit to close the pane — exec'd shells will already be dead after
-    // tmux kill-session, but this handles edge cases (osascript fallback, etc.)
+    // Ctrl-C to clear any pending input, then exit.
+    // exec'd shells will already be dead after tmux kill-session,
+    // but this handles edge cases (osascript fallback, stale panes).
+    execSafe(`${IT2API} send-text "${id}" "\x03"`);
     execSafe(`${IT2API} send-text "${id}" "exit\n"`);
   }
   attachedItermSessions.delete(tmuxSession);
