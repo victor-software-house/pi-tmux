@@ -148,10 +148,13 @@ export default function (pi: ExtensionAPI) {
 
 					if (silence) registerSilence(session, windowIndex, runId, silence);
 
-					// Auto-attach gated by user settings
+					// Auto-attach: fires from user setting OR explicit model request
 					let attachNote = "";
-					if (flags.canAttach && params.attach) {
-						const shouldAttach = currentSettings.autoAttach === "always" || (currentSettings.autoAttach === "session-create" && !alive);
+					if (flags.canAttach) {
+						const autoFires =
+							currentSettings.autoAttach === "always" ||
+							(currentSettings.autoAttach === "session-create" && !alive);
+						const shouldAttach = autoFires || params.attach === true;
 						if (shouldAttach) {
 							const mode = (params.mode as AttachLayout | undefined) ?? currentSettings.defaultLayout;
 							try {

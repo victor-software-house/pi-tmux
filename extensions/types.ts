@@ -13,6 +13,8 @@ export interface TmuxSettings {
 export interface FeatureFlags {
 	canAttach: boolean;
 	canMute: boolean;
+	autoAttach: AutoAttachMode;
+	windowReuse: WindowReuse;
 }
 
 export interface SilenceConfig {

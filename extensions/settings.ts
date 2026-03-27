@@ -56,6 +56,8 @@ export function getFlags(settings: TmuxSettings): FeatureFlags {
 	return {
 		canAttach: settings.autoAttach !== "never",
 		canMute: settings.allowMute,
+		autoAttach: settings.autoAttach,
+		windowReuse: settings.windowReuse,
 	};
 }
 

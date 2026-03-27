@@ -193,9 +193,9 @@ function isWindowReuse(value: string): value is WindowReuse {
 // ---------------------------------------------------------------------------
 
 const AUTO_ATTACH_DESCRIPTIONS: Record<string, string> = {
-	never: "Attach action and params removed from the tool schema entirely",
-	"session-create": "Only the first run that creates a session auto-attaches",
-	always: "Every run with attach: true opens a visible pane",
+	never: "Never auto-attach; attach action and params removed from the tool schema",
+	"session-create": "Auto-attach when a new session is created; model can also request attach: true",
+	always: "Auto-attach on every run; model can also request attach: true",
 };
 
 const LAYOUT_DESCRIPTIONS: Record<string, string> = {
