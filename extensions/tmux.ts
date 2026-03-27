@@ -267,7 +267,7 @@ function openTerminalTab(opts: AttachOptions): string {
           const result = execSafe(`${IT2API} split-pane${flag} "${targetSession}"`);
           const newId = result?.match(/id=([0-9A-F-]{36})/)?.[1];
           if (newId) {
-            execSafe(`${IT2API} send-text "${newId}" "${escapeForTmux(attachCmd)}\n"`);
+            execSafe(`${IT2API} send-text "${newId}" "exec ${escapeForTmux(attachCmd)}\n"`);
             return `Opened iTerm2 ${label} attached to ${session}.`;
           }
         } else {
@@ -291,7 +291,7 @@ function openTerminalTab(opts: AttachOptions): string {
             tell current session of current window
               set newSession to (split ${direction} with default profile)
               tell newSession
-                write text "${escapeForTmux(attachCmd)}"
+                write text "exec ${escapeForTmux(attachCmd)}"
               end tell
             end tell
           end tell'`);
@@ -301,7 +301,7 @@ function openTerminalTab(opts: AttachOptions): string {
             tell current window
               set newTab to (create tab with default profile)
               tell current session of newTab
-                write text "${escapeForTmux(attachCmd)}"
+                write text "exec ${escapeForTmux(attachCmd)}"
               end tell
             end tell
           end tell'`);
