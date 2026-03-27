@@ -1,6 +1,7 @@
 export type AutoAttachMode = "never" | "session-create" | "always";
 export type AttachLayout = "split-vertical" | "tab" | "split-horizontal";
 export type WindowReuse = "last" | "named" | "never";
+export type AutoFocus = "always" | "never";
 
 export interface TmuxSettings {
 	autoAttach: AutoAttachMode;
@@ -8,6 +9,7 @@ export interface TmuxSettings {
 	allowMute: boolean;
 	maxWindows: number;
 	windowReuse: WindowReuse;
+	autoFocus: AutoFocus;
 }
 
 export interface FeatureFlags {

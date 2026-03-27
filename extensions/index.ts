@@ -171,6 +171,11 @@ export default function (pi: ExtensionAPI) {
 						}
 					}
 
+					// Auto-focus: switch attached terminal to the target window
+					if (currentSettings.autoFocus === "always" && isSessionAlive(session)) {
+						tryRun(`tmux select-window -t ${session}:${windowIndex}`);
+					}
+
 					const verb = !alive ? "Created" : reused ? "Reused" : "Added to";
 					return {
 						content: [{ type: "text", text: `${verb} session ${session}\n  :${windowIndex}  ${windowName}: ${params.command}${attachNote}` }],

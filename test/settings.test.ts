@@ -39,6 +39,7 @@ const FULL_SETTINGS: TmuxSettings = {
 	allowMute: false,
 	maxWindows: 5,
 	windowReuse: "named",
+	autoFocus: "never",
 };
 
 // ---------------------------------------------------------------------------
@@ -135,17 +136,17 @@ describe("parseSettings()", () => {
 	});
 
 	test("accepts 'last' windowReuse", () => {
-		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "last" });
+		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "last", autoFocus: "always" });
 		expect(result.windowReuse).toBe("last");
 	});
 
 	test("accepts 'named' windowReuse", () => {
-		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "named" });
+		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "named", autoFocus: "always" });
 		expect(result.windowReuse).toBe("named");
 	});
 
 	test("accepts 'never' windowReuse", () => {
-		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "never" });
+		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "never", autoFocus: "always" });
 		expect(result.windowReuse).toBe("never");
 	});
 
@@ -205,13 +206,13 @@ describe("loadSettings()", () => {
 
 	test("round-trips windowReuse: never", () => {
 		const path = tempSettingsPath();
-		saveSettings({ ...FULL_SETTINGS, windowReuse: "never" }, path);
+		saveSettings({ ...FULL_SETTINGS, windowReuse: "never", autoFocus: "always" }, path);
 		expect(loadSettings(path).windowReuse).toBe("never");
 	});
 
 	test("round-trips windowReuse: last", () => {
 		const path = tempSettingsPath();
-		saveSettings({ ...FULL_SETTINGS, windowReuse: "last" }, path);
+		saveSettings({ ...FULL_SETTINGS, windowReuse: "last", autoFocus: "always" }, path);
 		expect(loadSettings(path).windowReuse).toBe("last");
 	});
 
@@ -229,31 +230,31 @@ describe("loadSettings()", () => {
 
 describe("getFlags()", () => {
 	test("canAttach is false when autoAttach is 'never'", () => {
-		const flags = getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last" });
+		const flags = getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last", autoFocus: "always" });
 		expect(flags.canAttach).toBe(false);
 		expect(flags.autoAttach).toBe("never");
 	});
 
 	test("canAttach is true when autoAttach is 'session-create'", () => {
-		const flags = getFlags({ autoAttach: "session-create", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last" });
+		const flags = getFlags({ autoAttach: "session-create", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last", autoFocus: "always" });
 		expect(flags.canAttach).toBe(true);
 		expect(flags.autoAttach).toBe("session-create");
 	});
 
 	test("canAttach is true when autoAttach is 'always'", () => {
-		const flags = getFlags({ autoAttach: "always", defaultLayout: "tab", allowMute: false, maxWindows: 5, windowReuse: "last" });
+		const flags = getFlags({ autoAttach: "always", defaultLayout: "tab", allowMute: false, maxWindows: 5, windowReuse: "last", autoFocus: "always" });
 		expect(flags.canAttach).toBe(true);
 		expect(flags.autoAttach).toBe("always");
 	});
 
 	test("canMute mirrors allowMute", () => {
-		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last" }).canMute).toBe(true);
-		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: false, maxWindows: 10, windowReuse: "last" }).canMute).toBe(false);
+		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last", autoFocus: "always" }).canMute).toBe(true);
+		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: false, maxWindows: 10, windowReuse: "last", autoFocus: "always" }).canMute).toBe(false);
 	});
 
 	test("windowReuse passes through to flags", () => {
-		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "named" }).windowReuse).toBe("named");
-		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "never" }).windowReuse).toBe("never");
+		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "named", autoFocus: "always" }).windowReuse).toBe("named");
+		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "never", autoFocus: "always" }).windowReuse).toBe("never");
 	});
 });
 

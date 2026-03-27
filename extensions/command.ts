@@ -12,13 +12,14 @@
  * /tmux hsplit    Attach as horizontal split
  */
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import type { AutoAttachMode, AttachLayout, TmuxSettings, WindowReuse } from "./types.js";
+import type { AutoAttachMode, AttachLayout, AutoFocus, TmuxSettings, WindowReuse } from "./types.js";
 import {
 	saveSettings,
 	getConfigPath,
 	AUTO_ATTACH_VALUES,
 	LAYOUT_VALUES,
 	WINDOW_REUSE_VALUES,
+	AUTO_FOCUS_VALUES,
 	MAX_WINDOWS_RANGE,
 } from "./settings.js";
 import { tryRun, resolveProjectRoot, deriveSessionName, isSessionAlive, listWindows, captureOutput } from "./session.js";
@@ -173,6 +174,8 @@ function applySettingChange(id: string, newValue: string): void {
 		}
 	} else if (id === "windowReuse" && isWindowReuse(newValue)) {
 		currentSettings.windowReuse = newValue;
+	} else if (id === "autoFocus" && isAutoFocus(newValue)) {
+		currentSettings.autoFocus = newValue;
 	}
 }
 
@@ -186,6 +189,10 @@ function isAttachLayout(value: string): value is AttachLayout {
 
 function isWindowReuse(value: string): value is WindowReuse {
 	return WINDOW_REUSE_VALUES.includes(value as WindowReuse);
+}
+
+function isAutoFocus(value: string): value is AutoFocus {
+	return AUTO_FOCUS_VALUES.includes(value as AutoFocus);
 }
 
 // ---------------------------------------------------------------------------
@@ -231,6 +238,15 @@ const WINDOW_REUSE_DESCRIPTIONS: Record<string, string> = {
 	never: "Always create a new window for every run command",
 };
 
+const AUTO_FOCUS_DESCRIPTIONS: Record<string, string> = {
+	always: "Switch attached terminal to the target window on every run",
+	never: "Leave the active window unchanged when running commands",
+};
+
+function autoFocusDescription(): string {
+	return AUTO_FOCUS_DESCRIPTIONS[currentSettings.autoFocus] ?? "";
+}
+
 function windowReuseDescription(): string {
 	return WINDOW_REUSE_DESCRIPTIONS[currentSettings.windowReuse] ?? "";
 }
@@ -257,6 +273,9 @@ function refreshDescriptions(items: MutableItem[]): void {
 				break;
 			case "windowReuse":
 				item.description = windowReuseDescription();
+				break;
+			case "autoFocus":
+				item.description = autoFocusDescription();
 				break;
 		}
 	}
@@ -298,6 +317,13 @@ function buildSettingItems(maxValues: string[]): MutableItem[] & { id: string; l
 			description: windowReuseDescription(),
 			currentValue: currentSettings.windowReuse,
 			values: [...WINDOW_REUSE_VALUES],
+		},
+		{
+			id: "autoFocus",
+			label: "Auto-focus window on run",
+			description: autoFocusDescription(),
+			currentValue: currentSettings.autoFocus,
+			values: [...AUTO_FOCUS_VALUES],
 		},
 	];
 }

@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AutoAttachMode, AttachLayout, FeatureFlags, TmuxSettings, WindowReuse } from "./types.js";
+import type { AutoAttachMode, AttachLayout, AutoFocus, FeatureFlags, TmuxSettings, WindowReuse } from "./types.js";
 
 export const AUTO_ATTACH_VALUES: readonly AutoAttachMode[] = ["never", "session-create", "always"];
 export const LAYOUT_VALUES: readonly AttachLayout[] = ["split-vertical", "tab", "split-horizontal"];
 export const WINDOW_REUSE_VALUES: readonly WindowReuse[] = ["last", "named", "never"];
+export const AUTO_FOCUS_VALUES: readonly AutoFocus[] = ["always", "never"];
 export const MAX_WINDOWS_RANGE = { min: 1, max: 50 } as const;
 
 const DEFAULT_SETTINGS: TmuxSettings = {
@@ -14,6 +15,7 @@ const DEFAULT_SETTINGS: TmuxSettings = {
 	allowMute: true,
 	maxWindows: 10,
 	windowReuse: "last",
+	autoFocus: "always",
 };
 
 const SETTINGS_PATH = join(homedir(), ".pi", "agent", ".pi-tmux.json");
@@ -33,6 +35,7 @@ export function parseSettings(raw: unknown): TmuxSettings {
 				? Math.floor(r.maxWindows)
 				: DEFAULT_SETTINGS.maxWindows,
 		windowReuse: WINDOW_REUSE_VALUES.includes(r?.windowReuse as WindowReuse) ? (r.windowReuse as WindowReuse) : DEFAULT_SETTINGS.windowReuse,
+		autoFocus: AUTO_FOCUS_VALUES.includes(r?.autoFocus as AutoFocus) ? (r.autoFocus as AutoFocus) : DEFAULT_SETTINGS.autoFocus,
 	};
 }
 
