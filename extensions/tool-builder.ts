@@ -9,7 +9,7 @@ import type { FeatureFlags } from "./types.js";
 import { when } from "./settings.js";
 
 export function buildActions(flags: FeatureFlags): string[] {
-	return ["run", ...when(flags.canAttach, "attach"), "focus", "peek", "list", "kill", ...when(flags.canMute, "mute")];
+	return ["run", ...when(flags.canAttach, "attach"), "focus", "close", "peek", "list", "kill", ...when(flags.canMute, "mute")];
 }
 
 export function buildParams(flags: FeatureFlags) {
@@ -53,7 +53,7 @@ export function buildParams(flags: FeatureFlags) {
 
 		window: Type.Optional(
 			Type.Union([Type.Number(), Type.String()], {
-				description: "Target window index or 'all' (for 'peek'/'mute'). Required for 'select'. Defaults to 'all' for peek.",
+				description: "Window index or name. Required for 'focus' and 'close'. Use 'all' for peek/mute. Defaults to 'all' for peek.",
 			}),
 		),
 
@@ -89,7 +89,8 @@ export function buildDescription(flags: FeatureFlags): string {
 		"",
 		"Actions:",
 		...runDesc,
-		"- focus: Switch the attached terminal to a specific window index without opening a new pane.",
+		"- focus: Switch the attached terminal to a window by index or name without opening a new pane.",
+		"- close: Close a specific window by index or name. Use kill to close the entire session.",
 		"- peek: Read recent output from one or all windows.",
 		"- list: Show all windows with their status.",
 		"- kill: Terminate the entire session.",
@@ -126,7 +127,7 @@ export function buildPromptGuidelines(flags: FeatureFlags): string[] {
 		"Use tmux for commands that take more than a few seconds or run continuously. Use bash for quick one-shot commands that return immediately.",
 		"After 'run', move on — the extension notifies you automatically when the command finishes with exit code and recent output. Use 'peek' to check intermediate progress.",
 		...(attachGuideline ? [attachGuideline] : []),
-		reuseGuideline,
+		reuseGuideline + " Explicitly named windows preserve scrollback history (send-keys). Auto-reused windows are respawned clean.",
 		"Use silenceTimeout when a command might prompt for input. Defaults: 60s initial, 1.5x backoff, 5 min cap.",
 		"Do not kill sessions unless explicitly asked.",
 		...when(flags.canMute, "Only mute windows with expected long idle periods (large builds, background daemons). Never mute interactive processes."),

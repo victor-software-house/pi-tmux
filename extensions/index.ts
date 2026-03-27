@@ -9,9 +9,9 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import type { AttachLayout, FeatureFlags, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
-import { run, tryRun, resolveProjectRoot, deriveSessionName, deriveWindowName, isSessionAlive, isWindowIdle, listWindows, captureOutput, tmuxEscape } from "./session.js";
+import { run, tryRun, resolveProjectRoot, deriveSessionName, deriveWindowName, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, tmuxEscape } from "./session.js";
 import { getActiveiTermSession, attachToSession, closeAttachedSessions } from "./terminal.js";
-import { initSignalDir, getSignalDir, startWatching, stopWatching, registerSilence, runCommandInPane, startCommandInFirstWindow, createWindowWithCommand, clearSilenceForWindow } from "./signals.js";
+import { initSignalDir, getSignalDir, startWatching, stopWatching, registerSilence, runCommandInPane, sendCommandPreserveHistory, startCommandInFirstWindow, createWindowWithCommand, clearSilenceForWindow } from "./signals.js";
 import { buildParams, buildDescription, buildPromptSnippet, buildPromptGuidelines } from "./tool-builder.js";
 import { registerTmuxCommand, initCommandSettings } from "./command.js";
 
@@ -124,12 +124,17 @@ export default function (pi: ExtensionAPI) {
 						}
 
 						if (reuseCandidate) {
-							// Reuse existing idle window — respawn it with the command directly (no echo)
 							const idx = reuseCandidate.index;
 							tryRun(`tmux rename-window -t ${session}:${idx} "${tmuxEscape(windowName)}"`);
 							if (silence) tryRun(`tmux set-option -t ${session} silence-action any`);
-							const paneCwd = tryRun(`tmux display -p -t ${session}:${idx} "#{pane_current_path}"`) ?? windowCwd;
-							runId = runCommandInPane(dir, session, idx, paneCwd, params.command, silence);
+							if (params.name) {
+								// Explicit name target — preserve scrollback history via send-keys
+								runId = sendCommandPreserveHistory(dir, session, idx, params.command, silence);
+							} else {
+								// Auto-reuse (last idle) — respawn for clean output, history not expected
+								const paneCwd = tryRun(`tmux display -p -t ${session}:${idx} "#{pane_current_path}"`) ?? windowCwd;
+								runId = runCommandInPane(dir, session, idx, paneCwd, params.command, silence);
+							}
 							windowIndex = idx;
 							reused = true;
 						} else {
@@ -190,9 +195,33 @@ export default function (pi: ExtensionAPI) {
 					if (!isSessionAlive(session)) {
 						return { content: [{ type: "text", text: `No active session '${session}'.` }], details: {} };
 					}
-					const win = typeof params.window === "number" ? params.window : parseInt(String(params.window ?? "0"), 10);
-					tryRun(`tmux select-window -t ${session}:${win}`);
-					return { content: [{ type: "text", text: `Switched to window :${win}` }], details: { session, window: win } };
+					const focusTarget = params.window ?? 0;
+					const focusIdx = resolveWindow(session, focusTarget);
+					if (focusIdx === undefined) {
+						return { content: [{ type: "text", text: `No window '${focusTarget}' in session ${session}.` }], details: {} };
+					}
+					tryRun(`tmux select-window -t ${session}:${focusIdx}`);
+					return { content: [{ type: "text", text: `Switched to :${focusIdx}` }], details: { session, window: focusIdx } };
+				}
+
+				case "close": {
+					if (!isSessionAlive(session)) {
+						return { content: [{ type: "text", text: `No active session '${session}'.` }], details: {} };
+					}
+					const closeTarget = params.window;
+					if (closeTarget === undefined) {
+						return { content: [{ type: "text", text: "Error: 'window' is required for close. Use kill to close the entire session." }], details: {} };
+					}
+					const closeIdx = resolveWindow(session, closeTarget);
+					if (closeIdx === undefined) {
+						return { content: [{ type: "text", text: `No window '${closeTarget}' in session ${session}.` }], details: {} };
+					}
+					tryRun(`tmux kill-window -t ${session}:${closeIdx}`);
+					const remaining = isSessionAlive(session) ? listWindows(session).length : 0;
+					return {
+						content: [{ type: "text", text: remaining > 0 ? `Closed :${closeIdx}. ${remaining} window(s) remain.` : `Closed :${closeIdx}. Session ended.` }],
+						details: { session, window: closeIdx, sessionEnded: remaining === 0 },
+					};
 				}
 
 				case "peek": {

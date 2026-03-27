@@ -39,7 +39,7 @@ describe("buildActions()", () => {
 
 	test("minimal set when all disabled", () => {
 		const actions = buildActions(ALL_DISABLED);
-		expect(actions).toEqual(["run", "focus", "peek", "list", "kill"]);
+		expect(actions).toEqual(["run", "focus", "close", "peek", "list", "kill"]);
 	});
 
 	test("always includes run, peek, list, kill", () => {

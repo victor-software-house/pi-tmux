@@ -259,6 +259,28 @@ function buildStartupCommand(scriptPath: string): string {
 }
 
 /**
+ * Send a command to an existing idle window via send-keys.
+ * Preserves scrollback history — use for explicitly-named windows where
+ * the user wants to keep previous output in scrollback.
+ * Echo shows the command text (expected interactive shell behaviour).
+ */
+export function sendCommandPreserveHistory(
+	dir: string,
+	session: string,
+	windowIndex: number,
+	command: string,
+	silence?: SilenceConfig,
+): string {
+	const runId = randomBytes(4).toString("hex");
+	const completionFile = join(dir, `${session}.${windowIndex}.${runId}`);
+	// Inline exit capture — echo shows command + minimal suffix
+	const inlineCmd = `${command}; _pi_ec=$?; echo $_pi_ec > '${completionFile}'`;
+	run(`tmux send-keys -t ${session}:${windowIndex} "${tmuxEscape(inlineCmd)}" C-m`);
+	wireSilence(dir, session, windowIndex, runId, silence);
+	return runId;
+}
+
+/**
  * Run a command in a tmux pane using respawn-pane (or new-window for new panes).
  * bash -c runs non-interactively — zero terminal echo.
  * exec $SHELL at the end keeps the window alive for inspection.

@@ -49,6 +49,16 @@ export function isSessionAlive(name: string): boolean {
 	return tryRun(`tmux has-session -t ${name} 2>/dev/null && echo ok`) === "ok";
 }
 
+/**
+ * Resolve a window target (index or name string) to a window index.
+ * Returns undefined if not found.
+ */
+export function resolveWindow(sessionName: string, target: number | string): number | undefined {
+	if (typeof target === "number") return target;
+	const windows = listWindows(sessionName);
+	return windows.find((w) => w.title === target)?.index;
+}
+
 /** List all windows in a tmux session. Returns empty array if session doesn't exist. */
 export function listWindows(sessionName: string): WindowInfo[] {
 	const raw = tryRun(`tmux list-windows -t ${sessionName} -F "#{window_index}\t#{window_name}\t#{window_active}"`);
