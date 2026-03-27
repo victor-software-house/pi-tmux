@@ -92,6 +92,14 @@ function getGitRoot(cwd: string): string | null {
   }
 }
 
+/**
+ * Get the project root for tmux session scoping.
+ * Prefers git root, falls back to the given cwd so tmux works outside git repos.
+ */
+function getProjectRoot(cwd: string): string {
+  return getGitRoot(cwd) ?? cwd;
+}
+
 function sessionName(gitRoot: string): string {
   const slug = gitRoot.split("/").pop()!.slice(0, 16).toLowerCase();
   const hash = createHash("md5").update(gitRoot).digest("hex").slice(0, 8);
@@ -262,10 +270,8 @@ function openTerminalTab(session: string, mode: string = "split-vertical"): stri
 }
 
 function attachToSession(cwd: string, mode: string = "split-vertical"): string {
-  const gitRoot = getGitRoot(cwd);
-  if (!gitRoot) return "Not in a git repository.";
-
-  const session = sessionName(gitRoot);
+  const projectRoot = getProjectRoot(cwd);
+  const session = sessionName(projectRoot);
   if (!sessionExists(session)) return `No tmux session for this project.`;
 
   try {
@@ -506,10 +512,8 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("tmux:cat", {
     description: "Capture tmux window output and bring it into the conversation",
     handler: async (_args, ctx) => {
-      const gitRoot = getGitRoot(ctx.cwd);
-      if (!gitRoot) { ctx.ui.notify("Not in a git repository.", "error"); return; }
-
-      const session = sessionName(gitRoot);
+      const projectRoot = getProjectRoot(ctx.cwd);
+      const session = sessionName(projectRoot);
       if (!sessionExists(session)) { ctx.ui.notify("No tmux session for this project.", "error"); return; }
 
       const windows = getWindows(session);
@@ -544,10 +548,8 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("tmux:clear", {
     description: "Kill tmux windows where the command has finished (idle shells)",
     handler: async (_args, ctx) => {
-      const gitRoot = getGitRoot(ctx.cwd);
-      if (!gitRoot) { ctx.ui.notify("Not in a git repository.", "error"); return; }
-
-      const session = sessionName(gitRoot);
+      const projectRoot = getProjectRoot(ctx.cwd);
+      const session = sessionName(projectRoot);
       if (!sessionExists(session)) { ctx.ui.notify("No tmux session for this project.", "error"); return; }
 
       const shells = new Set(["bash", "zsh", "sh", "fish", "dash"]);
@@ -590,7 +592,7 @@ export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "tmux",
     label: "tmux",
-    description: `Manage a tmux session for the current project (one session per git root).
+    description: `Manage a tmux session for the current project (one session per git root or working directory).
 
 WHEN TO USE: Prefer this over bash for long-running or background commands: dev servers, file watchers, build processes, test suites, anything that runs continuously or takes more than a few seconds. Use bash for quick one-shot commands that complete immediately (ls, cat, grep, git status, etc.).
 
@@ -603,7 +605,7 @@ Actions:
 - mute: Suppress silence notifications for a window (requires window index). Use when a command is expected to have long silence periods, not waiting for input.
 
 The user can also type /tmux to attach as a vertical split (default), /tmux tab to open in a new tab, /tmux split-horizontal to split horizontally, or /tmux:cat to select a window and bring its output into the conversation.`,
-    promptSnippet: "Manage a tmux session for the current project (one session per git root). Prefer this over bash for long-running or background commands.",
+    promptSnippet: "Manage a tmux session for the current project (one session per git root or working directory). Prefer this over bash for long-running or background commands.",
     promptGuidelines: [
       "Prefer tmux over bash for long-running or background commands: dev servers, file watchers, build processes, test suites, anything that runs continuously or takes more than a few seconds. Use bash for quick one-shot commands that complete immediately (ls, cat, grep, git status, etc.).",
       "After using tmux 'run', you do not need to poll or wait to find out when a command finishes. The session will automatically notify you with the exit code and recent output when the command completes — just move on to other work. You can still peek at any time to check intermediate output from a running process.",
@@ -615,16 +617,8 @@ The user can also type /tmux to attach as a vertical split (default), /tmux tab 
     parameters: TmuxParams,
 
     async execute(toolCallId, params, signal, onUpdate, ctx) {
-      const gitRoot = getGitRoot(ctx.cwd);
-      if (!gitRoot) {
-        return {
-          content: [{ type: "text", text: "Error: not in a git repository." }],
-
-          details: {},
-        };
-      }
-
-      const session = sessionName(gitRoot);
+      const projectRoot = getProjectRoot(ctx.cwd);
+      const session = sessionName(projectRoot);
 
       switch (params.action) {
         case "run": {
@@ -650,7 +644,7 @@ The user can also type /tmux to attach as a vertical split (default), /tmux tab 
 
           if (!exists) {
             const winName = (params.name ?? params.command.split(/[|;&\s]/)[0].split("/").pop() ?? "shell").slice(0, 30);
-            exec(`tmux new-session -d -s ${session} -n "${escapeForTmux(winName)}" -c "${gitRoot}"`);
+            exec(`tmux new-session -d -s ${session} -n "${escapeForTmux(winName)}" -c "${projectRoot}"`);
             // Enable silence alerts for all windows regardless of which is current
             exec(`tmux set-option -t ${session} silence-action any`);
             windowId = sendCommandWithSignal(signalDir, session, 0, params.command, silence);
@@ -660,7 +654,7 @@ The user can also type /tmux to attach as a vertical split (default), /tmux tab 
             if (silence) {
               execSafe(`tmux set-option -t ${session} silence-action any`);
             }
-            const result = addWindow(signalDir, session, gitRoot, params.command, params.name, silence);
+            const result = addWindow(signalDir, session, projectRoot, params.command, params.name, silence);
             windowIndex = result.index;
             windowId = result.id;
           }
