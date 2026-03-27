@@ -113,8 +113,8 @@ async function showSettingsPanel(ctx: ExtensionCommandContext, _pi: ExtensionAPI
 		return;
 	}
 
-	const { getSettingsListTheme } = await import("@mariozechner/pi-coding-agent");
-	const { Container, SettingsList, Text: TuiText } = await import("@mariozechner/pi-tui");
+	const { DynamicBorder, getSettingsListTheme, rawKeyHint } = await import("@mariozechner/pi-coding-agent");
+	const { Container, SettingsList, Spacer, Text: TuiText } = await import("@mariozechner/pi-tui");
 
 	let settingsChanged = false;
 
@@ -157,8 +157,15 @@ async function showSettingsPanel(ctx: ExtensionCommandContext, _pi: ExtensionAPI
 			},
 		];
 
+		const sep = theme.fg("muted", " \u00b7 ");
+		const hints = rawKeyHint("enter", "change") + sep + rawKeyHint("esc", "close");
+
 		const container = new Container();
-		container.addChild(new TuiText(theme.fg("accent", theme.bold("tmux settings")), 1, 1));
+		container.addChild(new Spacer(1));
+		container.addChild(new DynamicBorder());
+		container.addChild(new Spacer(1));
+		container.addChild(new TuiText(theme.fg("accent", theme.bold("tmux settings")) + "  " + hints, 1, 0));
+		container.addChild(new Spacer(1));
 
 		const settingsList = new SettingsList(items, 10, getSettingsListTheme(), (id, newValue) => {
 			settingsChanged = true;
@@ -178,6 +185,8 @@ async function showSettingsPanel(ctx: ExtensionCommandContext, _pi: ExtensionAPI
 		}, () => done(undefined));
 
 		container.addChild(settingsList);
+		container.addChild(new Spacer(1));
+		container.addChild(new DynamicBorder());
 		return {
 			render: (width: number) => container.render(width),
 			invalidate: () => container.invalidate(),

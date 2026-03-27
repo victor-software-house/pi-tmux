@@ -39,6 +39,21 @@ export default function (pi: ExtensionAPI) {
 		initSignalDir(ctx.sessionManager.getSessionFile());
 	});
 
+	pi.on("session_switch", async () => {
+		currentSettings = loadSettings();
+		initCommandSettings(currentSettings);
+	});
+
+	pi.on("session_tree", async () => {
+		currentSettings = loadSettings();
+		initCommandSettings(currentSettings);
+	});
+
+	pi.on("session_fork", async () => {
+		currentSettings = loadSettings();
+		initCommandSettings(currentSettings);
+	});
+
 	pi.on("session_shutdown", async () => {
 		await stopWatching();
 	});
