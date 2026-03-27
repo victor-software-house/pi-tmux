@@ -23,7 +23,7 @@ import {
 	COMPLETION_DELIVERY_VALUES,
 	MAX_WINDOWS_RANGE,
 } from "./settings.js";
-import { tryRun, resolveProjectRoot, deriveSessionName, isSessionAlive, listWindows, captureOutput } from "./session.js";
+import { tryRun, resolveProjectRoot, deriveSessionName, isSessionAlive, listWindows, resolveWindow, captureOutput } from "./session.js";
 import { attachToSession, closeAttachedSessions } from "./terminal.js";
 
 let currentSettings: TmuxSettings;
@@ -36,7 +36,7 @@ export function registerTmuxCommand(pi: ExtensionAPI, getPiSessionId: () => stri
 	pi.registerCommand("tmux", {
 		description: "Manage tmux session and settings",
 		getArgumentCompletions(prefix) {
-			const items = [
+			const subcommands = [
 				{ value: "show", description: "Session and window info" },
 				{ value: "cat", description: "Capture output into conversation" },
 				{ value: "clear", description: "Kill idle windows" },
@@ -46,14 +46,45 @@ export function registerTmuxCommand(pi: ExtensionAPI, getPiSessionId: () => stri
 				{ value: "split", description: "Attach as vertical split" },
 				{ value: "hsplit", description: "Attach as horizontal split" },
 			];
+
 			const lp = (prefix ?? "").trimStart().toLowerCase();
-			const filtered = items.filter((i) => i.value.startsWith(lp));
+			const parts = lp.split(/\s+/);
+			const sub = parts[0] ?? "";
+			const rest = parts.slice(1).join(" ");
+
+			// Subcommands that accept a window target
+			const windowTargetSubs = new Set(["cat", "attach", "tab", "split", "hsplit"]);
+
+			// If we have a recognized subcommand + space, offer window completions
+			if (parts.length >= 2 && windowTargetSubs.has(sub)) {
+				const root = resolveProjectRoot(process.cwd());
+				const session = deriveSessionName(root);
+				const windows = listWindows(session);
+				if (windows.length === 0) return null;
+
+				const windowItems = windows.map((w) => ({
+					value: `${sub} :${w.index}`,
+					label: `:${w.index}  ${w.title}${w.active ? "  (active)" : ""}`,
+					description: w.title,
+				}));
+
+				const filtered = rest
+					? windowItems.filter((i) => i.label.toLowerCase().includes(rest))
+					: windowItems;
+				return filtered.length > 0 ? filtered : null;
+			}
+
+			// First word — complete subcommands
+			const filtered = subcommands.filter((i) => i.value.startsWith(lp));
 			return filtered.length > 0
 				? filtered.map((i) => ({ value: i.value, label: `${i.value} - ${i.description}` }))
 				: null;
 		},
 		handler: async (args, ctx) => {
-			const sub = (args ?? "").trim().toLowerCase();
+			const raw = (args ?? "").trim();
+			const parts = raw.split(/\s+/);
+			const sub = (parts[0] ?? "").toLowerCase();
+			const windowArg = parseWindowArg(parts.slice(1).join(" "));
 			const root = resolveProjectRoot(ctx.cwd);
 			const session = deriveSessionName(root);
 
@@ -67,13 +98,14 @@ export function registerTmuxCommand(pi: ExtensionAPI, getPiSessionId: () => stri
 			if (sub in attachModes) {
 				const layout = attachModes[sub];
 				if (!layout) return;
-				const msg = attachToSession(ctx.cwd, { mode: layout, piSessionId: getPiSessionId() });
+				const tmuxWindow = windowArg !== undefined ? resolveWindow(session, windowArg) : undefined;
+				const msg = attachToSession(ctx.cwd, { mode: layout, tmuxWindow, piSessionId: getPiSessionId() });
 				ctx.ui.notify(msg, msg.startsWith("Failed") || msg.startsWith("No") ? "error" : "info");
 				return;
 			}
 
 			if (sub === "show") return handleShow(ctx, session);
-			if (sub === "cat") return handleCat(ctx, pi, session);
+			if (sub === "cat") return handleCat(ctx, pi, session, windowArg);
 			if (sub === "clear") return handleClear(ctx, session);
 			if (sub === "kill") return handleKill(ctx, session);
 
@@ -390,7 +422,15 @@ function handleShow(ctx: ExtensionCommandContext, session: string): void {
 	ctx.ui.notify(`Session ${session} -- ${windows.length} window(s)\n${formatted.join("\n")}`, "info");
 }
 
-async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session: string): Promise<void> {
+/** Parse a window argument like ":2" or "2" into a window index. */
+function parseWindowArg(raw: string): number | undefined {
+	const trimmed = raw.trim().replace(/^:/, "");
+	if (!trimmed) return undefined;
+	const n = parseInt(trimmed, 10);
+	return Number.isNaN(n) ? undefined : n;
+}
+
+async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session: string, windowArg?: number): Promise<void> {
 	if (!isSessionAlive(session)) {
 		ctx.ui.notify("No active session.", "error");
 		return;
@@ -401,21 +441,33 @@ async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session
 		return;
 	}
 
-	const options = ["all windows", ...windows.map((w) => `:${w.index}  ${w.title}${w.active ? "  (active)" : ""}`)];
-	const choice = await ctx.ui.select("Capture output from:", options);
-	if (choice === undefined || choice === null) return;
-
 	let target: number | "all";
-	if (String(choice) === "0" || choice === "all windows") {
-		target = "all";
-	} else {
-		const choiceIdx = typeof choice === "number" ? choice - 1 : options.indexOf(String(choice)) - 1;
-		const selectedWindow = windows[choiceIdx];
-		if (!selectedWindow) {
-			ctx.ui.notify("Invalid selection.", "error");
+
+	if (windowArg !== undefined) {
+		// Window provided via argument — skip the select UI
+		const resolved = resolveWindow(session, windowArg);
+		if (resolved === undefined) {
+			ctx.ui.notify(`No window :${windowArg} in session.`, "error");
 			return;
 		}
-		target = selectedWindow.index;
+		target = resolved;
+	} else {
+		// No window argument — show interactive picker
+		const options = ["all windows", ...windows.map((w) => `:${w.index}  ${w.title}${w.active ? "  (active)" : ""}`)];
+		const choice = await ctx.ui.select("Capture output from:", options);
+		if (choice === undefined || choice === null) return;
+
+		if (String(choice) === "0" || choice === "all windows") {
+			target = "all";
+		} else {
+			const choiceIdx = typeof choice === "number" ? choice - 1 : options.indexOf(String(choice)) - 1;
+			const selectedWindow = windows[choiceIdx];
+			if (!selectedWindow) {
+				ctx.ui.notify("Invalid selection.", "error");
+				return;
+			}
+			target = selectedWindow.index;
+		}
 	}
 
 	const output = captureOutput(session, target);
