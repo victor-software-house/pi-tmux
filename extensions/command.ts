@@ -23,8 +23,13 @@ import {
 	COMPLETION_DELIVERY_VALUES,
 	MAX_WINDOWS_RANGE,
 } from "./settings.js";
-import { tryRun, resolveProjectRoot, deriveSessionName, isSessionAlive, listWindows, resolveWindow, captureOutput } from "./session.js";
-import { attachToSession, closeAttachedSessions } from "./terminal.js";
+import { resolveProjectRoot, deriveSessionName, isSessionAlive, listWindows, captureOutput } from "./session.js";
+import { actionAttach, actionList, actionClear, actionKill, actionPeek, type ActionResult } from "./actions.js";
+
+/** Route an ActionResult to the UI. */
+function notify(ctx: ExtensionCommandContext, result: ActionResult): void {
+	ctx.ui.notify(result.message, result.ok ? "info" : "error");
+}
 
 let currentSettings: TmuxSettings;
 
@@ -98,16 +103,14 @@ export function registerTmuxCommand(pi: ExtensionAPI, getPiSessionId: () => stri
 			if (sub in attachModes) {
 				const layout = attachModes[sub];
 				if (!layout) return;
-				const tmuxWindow = windowArg !== undefined ? resolveWindow(session, windowArg) : undefined;
-				const msg = attachToSession(ctx.cwd, { mode: layout, tmuxWindow, piSessionId: getPiSessionId() });
-				ctx.ui.notify(msg, msg.startsWith("Failed") || msg.startsWith("No") ? "error" : "info");
+				notify(ctx, actionAttach(session, ctx.cwd, { layout, window: windowArg, piSessionId: getPiSessionId() }));
 				return;
 			}
 
-			if (sub === "show") return handleShow(ctx, session);
+			if (sub === "show") { notify(ctx, actionList(session)); return; }
 			if (sub === "cat") return handleCat(ctx, pi, session, windowArg);
-			if (sub === "clear") return handleClear(ctx, session);
-			if (sub === "kill") return handleKill(ctx, session);
+			if (sub === "clear") { notify(ctx, actionClear(session)); return; }
+			if (sub === "kill") { notify(ctx, actionKill(session)); return; }
 
 			if (sub) {
 				ctx.ui.notify(`Unknown: /tmux ${sub}`, "warning");
@@ -116,7 +119,7 @@ export function registerTmuxCommand(pi: ExtensionAPI, getPiSessionId: () => stri
 
 			// No-arg: settings panel (or session summary in non-interactive)
 			if (!ctx.hasUI) {
-				handleShow(ctx, session);
+				notify(ctx, actionList(session));
 				return;
 			}
 
@@ -412,16 +415,6 @@ function buildSettingItems(maxValues: string[]): MutableItem[] & { id: string; l
 // Subcommand handlers
 // ---------------------------------------------------------------------------
 
-function handleShow(ctx: ExtensionCommandContext, session: string): void {
-	if (!isSessionAlive(session)) {
-		ctx.ui.notify(`No active session (expected: ${session}).`, "info");
-		return;
-	}
-	const windows = listWindows(session);
-	const formatted = windows.map((w) => `  :${w.index}  ${w.title}${w.active ? "  (active)" : ""}`);
-	ctx.ui.notify(`Session ${session} -- ${windows.length} window(s)\n${formatted.join("\n")}`, "info");
-}
-
 /** Parse a window argument like ":2" or "2" into a window index. */
 function parseWindowArg(raw: string): number | undefined {
 	const trimmed = raw.trim().replace(/^:/, "");
@@ -444,13 +437,13 @@ async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session
 	let target: number | "all";
 
 	if (windowArg !== undefined) {
-		// Window provided via argument — skip the select UI
-		const resolved = resolveWindow(session, windowArg);
-		if (resolved === undefined) {
-			ctx.ui.notify(`No window :${windowArg} in session.`, "error");
+		// Window provided via argument — use actionPeek for validation
+		const result = actionPeek(session, windowArg);
+		if (!result.ok) {
+			ctx.ui.notify(result.message, "error");
 			return;
 		}
-		target = resolved;
+		target = windowArg;
 	} else {
 		// No window argument — show interactive picker
 		const options = ["all windows", ...windows.map((w) => `:${w.index}  ${w.title}${w.active ? "  (active)" : ""}`)];
@@ -474,49 +467,4 @@ async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session
 	pi.sendUserMessage(`Here is the tmux output:\n\n\`\`\`\n${output}\n\`\`\``, { deliverAs: "followUp" });
 }
 
-function handleClear(ctx: ExtensionCommandContext, session: string): void {
-	if (!isSessionAlive(session)) {
-		ctx.ui.notify("No active session.", "error");
-		return;
-	}
 
-	const idleShells = new Set(["bash", "zsh", "sh", "fish", "dash"]);
-	const raw = tryRun(`tmux list-windows -t ${session} -F "#{window_index}\t#{pane_current_command}\t#{pane_pid}"`);
-	if (!raw) {
-		ctx.ui.notify("No windows in session.", "error");
-		return;
-	}
-
-	const idle = raw
-		.split("\n")
-		.map((line) => {
-			const parts = line.split("\t");
-			return { index: parseInt(parts[0] ?? "0", 10), cmd: parts[1] ?? "", pid: parts[2] ?? "" };
-		})
-		.filter((w) => idleShells.has(w.cmd) && !tryRun(`pgrep -P ${w.pid}`));
-
-	if (idle.length === 0) {
-		ctx.ui.notify("No idle windows to clear.", "info");
-		return;
-	}
-
-	for (const w of idle) {
-		tryRun(`tmux kill-window -t ${session}:${w.index}`);
-	}
-
-	const remaining = isSessionAlive(session);
-	ctx.ui.notify(
-		remaining ? `Cleared ${idle.length} idle window(s).` : `Cleared ${idle.length} idle window(s) -- session closed.`,
-		"info",
-	);
-}
-
-function handleKill(ctx: ExtensionCommandContext, session: string): void {
-	if (!isSessionAlive(session)) {
-		ctx.ui.notify("No active session to kill.", "info");
-		return;
-	}
-	closeAttachedSessions(session);
-	tryRun(`tmux kill-session -t ${session}`);
-	ctx.ui.notify(`Killed session ${session}.`, "info");
-}
