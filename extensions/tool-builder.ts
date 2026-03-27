@@ -9,7 +9,7 @@ import type { FeatureFlags } from "./types.js";
 import { when } from "./settings.js";
 
 export function buildActions(flags: FeatureFlags): string[] {
-	return ["run", ...when(flags.canAttach, "attach"), "peek", "list", "kill", ...when(flags.canMute, "mute")];
+	return ["run", ...when(flags.canAttach, "attach"), "select", "peek", "list", "kill", ...when(flags.canMute, "mute")];
 }
 
 export function buildParams(flags: FeatureFlags) {
@@ -53,7 +53,7 @@ export function buildParams(flags: FeatureFlags) {
 
 		window: Type.Optional(
 			Type.Union([Type.Number(), Type.String()], {
-				description: "Target window index or 'all' (for 'peek'/'mute'). Defaults to 'all' for peek.",
+				description: "Target window index or 'all' (for 'peek'/'mute'). Required for 'select'. Defaults to 'all' for peek.",
 			}),
 		),
 
@@ -89,6 +89,7 @@ export function buildDescription(flags: FeatureFlags): string {
 		"",
 		"Actions:",
 		...runDesc,
+		"- select: Switch the active window in the attached terminal to a specific window index. Use when the user wants to see a different window without opening a new pane.",
 		"- peek: Read recent output from one or all windows.",
 		"- list: Show all windows with their status.",
 		"- kill: Terminate the entire session.",

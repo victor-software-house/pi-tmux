@@ -186,6 +186,15 @@ export default function (pi: ExtensionAPI) {
 					return { content: [{ type: "text", text: msg }], details: {} };
 				}
 
+				case "select": {
+					if (!isSessionAlive(session)) {
+						return { content: [{ type: "text", text: `No active session '${session}'.` }], details: {} };
+					}
+					const win = typeof params.window === "number" ? params.window : parseInt(String(params.window ?? "0"), 10);
+					tryRun(`tmux select-window -t ${session}:${win}`);
+					return { content: [{ type: "text", text: `Switched to window :${win}` }], details: { session, window: win } };
+				}
+
 				case "peek": {
 					if (!isSessionAlive(session)) {
 						return { content: [{ type: "text", text: `No active session '${session}'.` }], details: {} };
