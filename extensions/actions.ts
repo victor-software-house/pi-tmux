@@ -5,8 +5,8 @@
  * and the command's handler() are thin wrappers that format results for their
  * respective interfaces.
  */
-import type { AttachLayout, WindowInfo } from "./types.js";
-import { run, tryRun, isSessionAlive, listWindows, resolveWindow, captureOutput, tmuxEscape } from "./session.js";
+import type { AttachLayout } from "./types.js";
+import { run, tryRun, isSessionAlive, listWindows, resolveWindow, captureOutput } from "./session.js";
 import { attachToSession, closeAttachedSessions, hasAttachedPane } from "./terminal.js";
 
 // ---------------------------------------------------------------------------
