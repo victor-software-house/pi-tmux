@@ -146,7 +146,7 @@ async function openSettingsPanel(ctx: ExtensionCommandContext): Promise<void> {
 					tui.requestRender();
 				},
 			};
-	});
+	}, { overlay: true });
 
 	if (changed) {
 		const reload = await ctx.ui.confirm("Reload Required", "Settings changed. Reload pi to update tool capabilities?");
