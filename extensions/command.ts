@@ -3,7 +3,7 @@
  */
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type { AutoAttachMode, AttachLayout, TmuxSettings } from "./types.js";
-import { loadSettings, saveSettings, getFlags, AUTO_ATTACH_VALUES, LAYOUT_VALUES, MAX_WINDOWS_RANGE } from "./settings.js";
+import { saveSettings, AUTO_ATTACH_VALUES, LAYOUT_VALUES, MAX_WINDOWS_RANGE } from "./settings.js";
 import { exec, execSafe, getProjectRoot, sessionName, sessionExists, getWindows, capturePanes } from "./session.js";
 import { attachToSession, closeAttachedSessions } from "./terminal.js";
 
@@ -102,7 +102,7 @@ export function registerTmuxCommand(pi: ExtensionAPI, getPiSessionId: () => stri
 	});
 }
 
-async function showSettingsPanel(ctx: ExtensionCommandContext, pi: ExtensionAPI): Promise<void> {
+async function showSettingsPanel(ctx: ExtensionCommandContext, _pi: ExtensionAPI): Promise<void> {
 	if (!ctx.hasUI) {
 		ctx.ui.notify(
 			[`auto-attach: ${currentSettings.autoAttach}`, `default-layout: ${currentSettings.defaultLayout}`, `allow-mute: ${currentSettings.allowMute}`, `max-windows: ${currentSettings.maxWindows}`].join(
