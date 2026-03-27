@@ -11,7 +11,7 @@ import type { AttachLayout, FeatureFlags, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
 import { run, tryRun, resolveProjectRoot, deriveSessionName, deriveWindowName, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, tmuxEscape } from "./session.js";
 import { getActiveiTermSession, attachToSession, closeAttachedSessions } from "./terminal.js";
-import { initSignalDir, getSignalDir, startWatching, stopWatching, registerSilence, runCommandInPane, sendCommandPreserveHistory, startCommandInFirstWindow, createWindowWithCommand, clearSilenceForWindow } from "./signals.js";
+import { trackCompletion, registerSilence, clearSilenceForWindow, sendCommand, createWindowWithCommand, startCommandInFirstWindow, stopAll } from "./signals.js";
 import { buildParams, buildDescription, buildPromptSnippet, buildPromptGuidelines } from "./tool-builder.js";
 import { registerTmuxCommand, initCommandSettings } from "./command.js";
 
@@ -27,13 +27,10 @@ export default function (pi: ExtensionAPI) {
 
 	initCommandSettings(currentSettings);
 
-	// --- Lifecycle ---
-
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (_event, _ctx) => {
 		capturePiSession();
 		currentSettings = loadSettings();
 		initCommandSettings(currentSettings);
-		initSignalDir(ctx.sessionManager.getSessionFile());
 	});
 
 	pi.on("session_switch", async () => {
@@ -52,14 +49,10 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", async () => {
-		await stopWatching();
+		stopAll();
 	});
 
-	// --- Command ---
-
 	registerTmuxCommand(pi, () => piSessionId);
-
-	// --- Tool (schema built from feature flags at load time) ---
 
 	const flags: FeatureFlags = getFlags(currentSettings);
 
@@ -81,41 +74,33 @@ export default function (pi: ExtensionAPI) {
 						return { content: [{ type: "text", text: "Error: 'command' is required." }], details: {} };
 					}
 
-					// Auto-derive window name from command if not provided
 					const windowName = params.name ? params.name.slice(0, 30) : deriveWindowName(params.command);
 					const alive = isSessionAlive(session);
 					const reuse = currentSettings.windowReuse;
 
-					startWatching(pi);
-					const dir = getSignalDir();
 					const timeout = params.silenceTimeout ?? 0;
 					const silence: SilenceConfig | undefined =
 						timeout > 0 ? { timeout, factor: params.silenceBackoffFactor ?? 1.5, cap: params.silenceBackoffCap ?? 300 } : undefined;
 					const windowCwd = params.cwd ?? root;
 
 					let windowIndex: number;
-					let runId: string;
 					let reused = false;
 
 					if (!alive) {
-						// No session yet — create with a plain default window, then respawn with command
 						run(`tmux new-session -d -s ${session} -c "${windowCwd}"`);
-						run(`tmux set-option -t ${session} silence-action any`);
-						runId = startCommandInFirstWindow(dir, session, windowName, windowCwd, params.command, silence);
+						if (silence) run(`tmux set-option -t ${session} silence-action any`);
+						startCommandInFirstWindow(session, windowName, params.command);
 						windowIndex = 0;
 					} else {
 						const windows = listWindows(session);
 
-						// Find an idle window to reuse
 						let reuseCandidate: (typeof windows)[number] | undefined;
 						if (reuse !== "never") {
 							if (params.name) {
-								// Explicit name: only reuse a window with that exact name — never fall back
 								reuseCandidate = windows
 									.filter((w) => w.title === params.name && isWindowIdle(session, w.index))
 									.at(-1);
 							} else if (reuse === "last") {
-								// No name: reuse last idle window (auto-reuse)
 								reuseCandidate = [...windows].reverse().find((w) => isWindowIdle(session, w.index));
 							} else if (reuse === "named") {
 								// named policy with no name given: never reuse, always create new
@@ -126,18 +111,10 @@ export default function (pi: ExtensionAPI) {
 							const idx = reuseCandidate.index;
 							tryRun(`tmux rename-window -t ${session}:${idx} "${tmuxEscape(windowName)}"`);
 							if (silence) tryRun(`tmux set-option -t ${session} silence-action any`);
-							if (params.name) {
-								// Explicit name target — preserve scrollback history via send-keys
-								runId = sendCommandPreserveHistory(dir, session, idx, params.command, silence);
-							} else {
-								// Auto-reuse (last idle) — respawn for clean output, history not expected
-								const paneCwd = tryRun(`tmux display -p -t ${session}:${idx} "#{pane_current_path}"`) ?? windowCwd;
-								runId = runCommandInPane(dir, session, idx, paneCwd, params.command, silence);
-							}
+							sendCommand(session, idx, params.command);
 							windowIndex = idx;
 							reused = true;
 						} else {
-							// No idle candidate — create new window (respecting maxWindows)
 							if (windows.length >= currentSettings.maxWindows) {
 								return {
 									content: [{ type: "text", text: `Error: ${windows.length} windows open (max: ${currentSettings.maxWindows}). Clear idle windows first (/tmux:clear).` }],
@@ -145,15 +122,17 @@ export default function (pi: ExtensionAPI) {
 								};
 							}
 							if (silence) tryRun(`tmux set-option -t ${session} silence-action any`);
-							const result = createWindowWithCommand(dir, session, windowCwd, params.command, windowName, silence);
-							windowIndex = result.index;
-							runId = result.runId;
+							windowIndex = createWindowWithCommand(session, windowCwd, params.command, windowName);
 						}
 					}
 
-					if (silence) registerSilence(session, windowIndex, runId, silence);
+					// Start non-blocking completion tracking
+					trackCompletion(pi, session, windowIndex);
 
-					// Auto-attach: fires from user setting OR explicit model request
+					// Wire silence detection if requested
+					if (silence) registerSilence(session, windowIndex, silence);
+
+					// Auto-attach
 					let attachNote = "";
 					if (flags.canAttach) {
 						const autoFires =
@@ -170,7 +149,7 @@ export default function (pi: ExtensionAPI) {
 						}
 					}
 
-					// Auto-focus: switch attached terminal to the target window
+					// Auto-focus
 					if (currentSettings.autoFocus === "always" && isSessionAlive(session)) {
 						tryRun(`tmux select-window -t ${session}:${windowIndex}`);
 					}
@@ -315,24 +294,5 @@ export default function (pi: ExtensionAPI) {
 			}
 			return new Text(text, 0, 0);
 		},
-	});
-
-	// --- Custom message renderers ---
-
-	pi.registerMessageRenderer("tmux-completion", (message, { expanded }, theme) => {
-		const raw = message.content as string;
-		const [summary, ...rest] = raw.split("\n");
-		const icon = (summary ?? "").includes("successfully") ? theme.fg("success", "*") : theme.fg("error", "x");
-		let text = `${icon} ${theme.fg("toolTitle", "tmux")} ${summary ?? ""}`;
-		if (expanded && rest.length > 0) text += "\n" + theme.fg("dim", rest.join("\n"));
-		return new Text(text, 0, 0);
-	});
-
-	pi.registerMessageRenderer("tmux-silence", (message, { expanded }, theme) => {
-		const raw = message.content as string;
-		const [summary, ...rest] = raw.split("\n");
-		let text = `${theme.fg("warning", "||")} ${theme.fg("toolTitle", "tmux")} ${summary ?? ""}`;
-		if (expanded && rest.length > 0) text += "\n" + theme.fg("dim", rest.join("\n"));
-		return new Text(text, 0, 0);
 	});
 }

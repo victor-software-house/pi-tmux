@@ -22,9 +22,7 @@
       "./extensions"
     ]
   },
-  "dependencies": {
-    "chokidar": "^5.0.0"
-  },
+  "dependencies": {},
   "peerDependencies": {
     "@mariozechner/pi-ai": "*",
     "@mariozechner/pi-coding-agent": "*",

@@ -1,357 +1,253 @@
 /**
- * Command lifecycle tracking via signal files.
+ * Command lifecycle tracking via pane_current_command polling.
  *
- * Each command gets a wrapper script that writes an exit code to a signal file
- * on completion. A chokidar watcher detects new signal files and dispatches
- * completion or silence notifications back into the conversation.
+ * Sends raw commands to tmux via send-keys. A non-blocking setInterval
+ * polls tmux's pane_current_command format (~5ms per call) to detect
+ * when the foreground process returns to the shell. On completion,
+ * captures pane output and dispatches a notification into the conversation.
  *
- * Signal file naming: `<session>.<windowIdx>.<runId>` for completions,
- * `silence.<session>.<windowIdx>.<runId>` for silence alerts.
+ * Zero wrapper scripts. Zero temp files. Zero terminal pollution.
  */
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { mkdirSync, readFileSync, writeFileSync, unlinkSync } from "node:fs";
-import { randomBytes } from "node:crypto";
-import { join } from "node:path";
-import { watch as chokidarWatch, type FSWatcher } from "chokidar";
 import type { SilenceConfig } from "./types.js";
-import { run, tryRun, listWindows, tmuxEscape } from "./session.js";
+import { run, tryRun, listWindows, captureOutput, tmuxEscape } from "./session.js";
 
-const SIGNAL_ROOT = "/tmp/pi-tmux";
-
-let signalDir: string | null = null;
-let watcher: FSWatcher | null = null;
-
-/**
- * Per-window silence backoff tracker.
- * Key format: `session.windowIndex.runId`
- */
-const silenceTracker = new Map<string, { currentInterval: number; factor: number; ceiling: number }>();
+const IDLE_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", "csh"]);
+const POLL_INTERVAL_MS = 2000;
 
 // ---------------------------------------------------------------------------
-// Signal directory
+// Completion tracking
 // ---------------------------------------------------------------------------
 
-export function getSignalDir(): string {
-	if (!signalDir) {
-		signalDir = join(SIGNAL_ROOT, randomBytes(8).toString("hex"));
-		mkdirSync(signalDir, { recursive: true });
-	}
-	return signalDir;
-}
-
-export function initSignalDir(sessionId: string | null | undefined): void {
-	const suffix = sessionId
-		? Buffer.from(sessionId).toString("base64url").slice(0, 16)
-		: randomBytes(8).toString("hex");
-	signalDir = join(SIGNAL_ROOT, suffix);
-	mkdirSync(signalDir, { recursive: true });
-}
-
-// ---------------------------------------------------------------------------
-// Signal file parsing
-// ---------------------------------------------------------------------------
-
-interface SignalIdentity {
+interface CompletionTracker {
+	timer: ReturnType<typeof setInterval>;
 	session: string;
 	windowIndex: number;
-	runId: string;
+	/** The foreground command seen at launch (used to detect transition back to shell). */
+	initialCommand: string | null;
 }
 
-function parseSignalName(name: string): SignalIdentity | null {
-	// Format: session.windowIndex.runId
-	const segments = name.split(".");
-	if (segments.length < 3) return null;
-	const runId = segments.pop()!;
-	const winStr = segments.pop()!;
-	const windowIndex = parseInt(winStr, 10);
-	if (Number.isNaN(windowIndex)) return null;
-	const session = segments.join(".");
-	if (!session) return null;
-	return { session, windowIndex, runId };
+const completionTrackers = new Map<string, CompletionTracker>();
+
+function trackerKey(session: string, windowIndex: number): string {
+	return `${session}:${windowIndex}`;
 }
 
-function buildTrackerKey(id: SignalIdentity): string {
-	return `${id.session}.${id.windowIndex}.${id.runId}`;
-}
-
-// ---------------------------------------------------------------------------
-// Silence tracking
-// ---------------------------------------------------------------------------
-
-export function registerSilence(session: string, windowIndex: number, runId: string, config: SilenceConfig): void {
-	silenceTracker.set(buildTrackerKey({ session, windowIndex, runId }), {
-		currentInterval: config.timeout,
-		factor: config.factor,
-		ceiling: config.cap,
-	});
-}
-
-export function clearSilenceForWindow(session: string, windowIndex: number): boolean {
-	let cleared = false;
-	for (const key of silenceTracker.keys()) {
-		const id = parseSignalName(key);
-		if (id && id.session === session && id.windowIndex === windowIndex) {
-			silenceTracker.delete(key);
-			cleared = true;
-		}
-	}
-	tryRun(`tmux set-option -w -t ${session}:${windowIndex} monitor-silence 0`);
-	tryRun(`tmux set-hook -uw -t ${session}:${windowIndex} alert-silence`);
-	return cleared;
-}
-
-// ---------------------------------------------------------------------------
-// Notification dispatchers
-// ---------------------------------------------------------------------------
-
-function filterPaneOutput(raw: string | null, maxLines = 20): string {
-	return (raw ?? "")
+function filterPaneOutput(raw: string, maxLines = 20): string {
+	return raw
 		.split("\n")
 		.filter((l) => l.trim())
 		.slice(-maxLines)
 		.join("\n");
 }
 
-function dispatchCompletion(pi: ExtensionAPI, filepath: string, name: string): void {
-	const rawCode = readFileSync(filepath, "utf-8").trim();
-	unlinkSync(filepath);
+/**
+ * Start polling a window for command completion.
+ * Non-blocking — returns immediately. The interval fires every POLL_INTERVAL_MS
+ * on the Node event loop and dispatches a follow-up message when the
+ * foreground process transitions back to an idle shell.
+ */
+export function trackCompletion(pi: ExtensionAPI, session: string, windowIndex: number): void {
+	const key = trackerKey(session, windowIndex);
 
-	const id = parseSignalName(name);
-	if (!id) return;
+	// Cancel any existing tracker for this window (new command supersedes)
+	const existing = completionTrackers.get(key);
+	if (existing) clearInterval(existing.timer);
 
-	// Clean up silence tracking for this run
-	const key = buildTrackerKey(id);
-	if (silenceTracker.has(key)) {
-		silenceTracker.delete(key);
-		tryRun(`tmux set-option -w -t ${id.session}:${id.windowIndex} monitor-silence 0`);
-		tryRun(`tmux set-hook -uw -t ${id.session}:${id.windowIndex} alert-silence`);
-	}
+	// Snapshot what's running right now (might still be the shell if send-keys
+	// hasn't been processed yet — we handle that with a startup grace period).
+	const currentCmd = tryRun(`tmux display -p -t ${session}:${windowIndex} "#{pane_current_command}"`);
+	let seenNonShell = !IDLE_SHELLS.has(currentCmd ?? "");
+	let ticks = 0;
 
-	const windows = listWindows(id.session);
-	const windowTitle = windows.find((w) => w.index === id.windowIndex)?.title ?? `window ${id.windowIndex}`;
+	const timer = setInterval(() => {
+		ticks++;
+		const cmd = tryRun(`tmux display -p -t ${session}:${windowIndex} "#{pane_current_command}"`);
 
-	const recentOutput = tryRun(`tmux capture-pane -t ${id.session}:${id.windowIndex} -p -S -30`);
-	const trimmed = filterPaneOutput(recentOutput);
+		// Window or session gone — clean up silently
+		if (cmd === null) {
+			clearInterval(timer);
+			completionTrackers.delete(key);
+			clearSilenceForWindow(session, windowIndex);
+			return;
+		}
 
-	const exitCode = parseInt(rawCode, 10);
-	const outcome = exitCode === 0 ? "completed successfully" : `failed with exit code ${exitCode}`;
+		// Track if we've ever seen a non-shell command (the actual command running)
+		if (!IDLE_SHELLS.has(cmd)) {
+			seenNonShell = true;
+			return; // still running
+		}
 
-	pi.sendMessage(
-		{
-			customType: "tmux-completion",
-			content: `tmux window "${windowTitle}" (:${id.windowIndex}) ${outcome}.\n\n\`\`\`\n${trimmed}\n\`\`\``,
-			display: true,
-		},
-		{ triggerTurn: true, deliverAs: "followUp" },
-	);
+		// We see a shell. If we never saw the command start, give it a grace
+		// period (send-keys may not have been processed yet).
+		if (!seenNonShell) {
+			// Grace: up to 5 ticks (10s) to see the command start
+			if (ticks < 5) return;
+			// If after 10s it's still shell, the command was instant (e.g. echo)
+		}
+
+		// Command finished — stop polling
+		clearInterval(timer);
+		completionTrackers.delete(key);
+		clearSilenceForWindow(session, windowIndex);
+
+		// Capture output and notify
+		const windows = listWindows(session);
+		const windowTitle = windows.find((w) => w.index === windowIndex)?.title ?? `window ${windowIndex}`;
+		const output = captureOutput(session, windowIndex);
+		const trimmed = filterPaneOutput(output);
+
+		pi.sendMessage(
+			{
+				customType: "tmux-completion",
+				content: `tmux "${windowTitle}" (:${windowIndex}) finished.\n\n\`\`\`\n${trimmed}\n\`\`\``,
+				display: true,
+			},
+			{ triggerTurn: true, deliverAs: "followUp" },
+		);
+	}, POLL_INTERVAL_MS);
+
+	completionTrackers.set(key, {
+		timer,
+		session,
+		windowIndex,
+		initialCommand: currentCmd,
+	});
 }
 
-function dispatchSilenceAlert(pi: ExtensionAPI, filepath: string, name: string): void {
-	unlinkSync(filepath);
+// ---------------------------------------------------------------------------
+// Silence tracking (unchanged — uses tmux's monitor-silence, already invisible)
+// ---------------------------------------------------------------------------
 
-	const stripped = name.slice("silence.".length);
-	const id = parseSignalName(stripped);
-	if (!id) return;
+interface SilenceTracker {
+	currentInterval: number;
+	factor: number;
+	ceiling: number;
+}
 
-	const key = buildTrackerKey(id);
-	const tracker = silenceTracker.get(key);
+const silenceTrackers = new Map<string, SilenceTracker>();
+
+function silenceKey(session: string, windowIndex: number): string {
+	return `${session}:${windowIndex}`;
+}
+
+export function registerSilence(session: string, windowIndex: number, config: SilenceConfig): void {
+	const key = silenceKey(session, windowIndex);
+	silenceTrackers.set(key, {
+		currentInterval: config.timeout,
+		factor: config.factor,
+		ceiling: config.cap,
+	});
+	wireSilence(session, windowIndex, config);
+}
+
+export function clearSilenceForWindow(session: string, windowIndex: number): boolean {
+	const key = silenceKey(session, windowIndex);
+	const had = silenceTrackers.delete(key);
+	tryRun(`tmux set-option -w -t ${session}:${windowIndex} monitor-silence 0`);
+	tryRun(`tmux set-hook -uw -t ${session}:${windowIndex} alert-silence`);
+	return had;
+}
+
+/**
+ * Check for silence alerts. Called from the same poll loop or on demand.
+ * tmux's monitor-silence + alert-silence hook writes to a tmux env var
+ * which we read during the poll cycle.
+ */
+export function checkSilence(pi: ExtensionAPI, session: string, windowIndex: number): void {
+	const key = silenceKey(session, windowIndex);
+	const tracker = silenceTrackers.get(key);
 	if (!tracker) return;
 
-	const windows = listWindows(id.session);
-	const windowTitle = windows.find((w) => w.index === id.windowIndex)?.title ?? `window ${id.windowIndex}`;
+	// Check if tmux fired a silence alert via environment variable
+	const flag = tryRun(`tmux show-environment -t ${session} PI_SILENCE_${windowIndex} 2>/dev/null`);
+	if (!flag || !flag.includes("=1")) return;
 
-	const recentOutput = tryRun(`tmux capture-pane -t ${id.session}:${id.windowIndex} -p -S -30`);
-	const trimmed = filterPaneOutput(recentOutput);
+	// Clear the flag
+	tryRun(`tmux set-environment -t ${session} -u PI_SILENCE_${windowIndex}`);
+
+	const windows = listWindows(session);
+	const windowTitle = windows.find((w) => w.index === windowIndex)?.title ?? `window ${windowIndex}`;
+	const output = captureOutput(session, windowIndex);
+	const trimmed = filterPaneOutput(output);
 
 	pi.sendMessage(
 		{
 			customType: "tmux-silence",
-			content: `tmux window "${windowTitle}" (:${id.windowIndex}) silent for ${tracker.currentInterval}s — may need input. Use "mute" action with window ${id.windowIndex} to suppress.\n\n\`\`\`\n${trimmed}\n\`\`\``,
+			content: `tmux "${windowTitle}" (:${windowIndex}) silent for ${tracker.currentInterval}s — may need input. Use "mute" action with window ${windowIndex} to suppress.\n\n\`\`\`\n${trimmed}\n\`\`\``,
 			display: true,
 		},
 		{ triggerTurn: true, deliverAs: "followUp" },
 	);
 
-	// Apply backoff for next alert
+	// Backoff
 	const nextInterval = Math.min(Math.round(tracker.currentInterval * tracker.factor), tracker.ceiling);
 	tracker.currentInterval = nextInterval;
-	tryRun(`tmux set-option -w -t ${id.session}:${id.windowIndex} monitor-silence ${nextInterval}`);
+	tryRun(`tmux set-option -w -t ${session}:${windowIndex} monitor-silence ${nextInterval}`);
 }
 
 // ---------------------------------------------------------------------------
-// File watcher
+// Command execution — clean send-keys, no wrappers
 // ---------------------------------------------------------------------------
 
-export function startWatching(pi: ExtensionAPI): void {
-	if (watcher) return;
-
-	const dir = getSignalDir();
-	watcher = chokidarWatch(dir, {
-		ignoreInitial: true,
-		depth: 0,
-		ignored: [join(dir, "scripts"), /\.sh$/],
-		awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 60 },
-	});
-
-	watcher.on("add", (filepath) => {
-		try {
-			const fileName = filepath.split("/").pop();
-			if (!fileName) return;
-			if (fileName.startsWith("silence.")) {
-				dispatchSilenceAlert(pi, filepath, fileName);
-			} else {
-				dispatchCompletion(pi, filepath, fileName);
-			}
-		} catch {
-			// Racing deletes, permission errors — ignore
-		}
-	});
-}
-
-export async function stopWatching(): Promise<void> {
-	if (watcher) {
-		await watcher.close();
-		watcher = null;
-	}
-	silenceTracker.clear();
-	if (signalDir) {
-		try {
-			const { execSync } = await import("node:child_process");
-			execSync(`rm -rf "${signalDir}"`, { timeout: 5_000 });
-		} catch {
-			// best effort
-		}
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Command execution with signal wiring
-// ---------------------------------------------------------------------------
-
-/** The user's configured shell, falling back to sh. */
-function userShell(): string {
-	return process.env["SHELL"] ?? "sh";
-}
-
 /**
- * Write a script file for the command and return the path.
- * Using a file avoids quoting hell across the Node→sh→tmux→shell chain.
- * The path is a simple alphanum string — safe to embed anywhere.
+ * Send a command to an existing window via send-keys.
+ * Just the command, nothing else. History stays clean.
  */
-function writeCommandScript(dir: string, completionFile: string, command: string): string {
-	const scriptsDir = join(dir, "scripts");
-	mkdirSync(scriptsDir, { recursive: true });
-	const id = randomBytes(4).toString("hex");
-	const scriptPath = join(scriptsDir, `${id}.sh`);
-	writeFileSync(scriptPath, `${command}\n_ec=$?\necho $_ec > '${completionFile}'\n`, { mode: 0o755 });
-	return scriptPath;
+export function sendCommand(session: string, windowIndex: number, command: string): void {
+	run(`tmux send-keys -t ${session}:${windowIndex} "${tmuxEscape(command)}" C-m`);
 }
 
 /**
- * Build the tmux startup command for a pane.
- * Passes the script file path to the user's shell — no quoting issues.
- * The shell runs the script, captures the exit code, then exec's an
- * interactive shell so the window stays alive for inspection.
- */
-function buildStartupCommand(scriptPath: string): string {
-	const shell = userShell();
-	return `${shell} '${scriptPath}'; exec ${shell}`;
-}
-
-/**
- * Send a command to an existing idle window via send-keys.
- * Preserves scrollback history — use for explicitly-named windows where
- * the user wants to keep previous output in scrollback.
- * Echo shows the command text (expected interactive shell behaviour).
- */
-export function sendCommandPreserveHistory(
-	dir: string,
-	session: string,
-	windowIndex: number,
-	command: string,
-	silence?: SilenceConfig,
-): string {
-	const runId = randomBytes(4).toString("hex");
-	const completionFile = join(dir, `${session}.${windowIndex}.${runId}`);
-	// Inline exit capture. Use \$ so the outer shell (Node execSync) does not
-	// expand $? and $_pi_ec — they must be evaluated by the pane's interactive shell.
-	const inlineCmd = `${command}; _pi_ec=\\$?; echo \\$_pi_ec > '${completionFile}'`;
-	run(`tmux send-keys -t ${session}:${windowIndex} "${tmuxEscape(inlineCmd)}" C-m`);
-	wireSilence(dir, session, windowIndex, runId, silence);
-	return runId;
-}
-
-/**
- * Run a command in a tmux pane using respawn-pane (or new-window for new panes).
- * bash -c runs non-interactively — zero terminal echo.
- * exec $SHELL at the end keeps the window alive for inspection.
- * Works for both new windows and reused idle windows.
- */
-export function runCommandInPane(
-	dir: string,
-	session: string,
-	windowIndex: number,
-	cwd: string,
-	command: string,
-	silence?: SilenceConfig,
-): string {
-	const runId = randomBytes(4).toString("hex");
-	const completionFile = join(dir, `${session}.${windowIndex}.${runId}`);
-	const scriptPath = writeCommandScript(dir, completionFile, command);
-	const startupCmd = buildStartupCommand(scriptPath);
-
-	run(`tmux respawn-pane -t ${session}:${windowIndex} -k -c "${cwd}" "${tmuxEscape(startupCmd)}"`);
-	wireSilence(dir, session, windowIndex, runId, silence);
-	return runId;
-}
-
-/**
- * Create a new tmux window and immediately start the command in it.
- * Passes the startup command directly to new-window — no intermediate shell.
+ * Create a new tmux window and send the command to it.
+ * Returns the window index.
  */
 export function createWindowWithCommand(
-	dir: string,
 	session: string,
 	cwd: string,
 	command: string,
 	windowName: string,
-	silence?: SilenceConfig,
-): { index: number; runId: string } {
-	const runId = randomBytes(4).toString("hex");
+): number {
 	const name = windowName.slice(0, 30);
-
-	// Create window first to get the index, then respawn with the real signal path
 	const raw = run(`tmux new-window -t ${session} -n "${tmuxEscape(name)}" -c "${cwd}" -P -F "#{window_index}"`);
 	const index = parseInt(raw, 10);
-
-	const completionFile = join(dir, `${session}.${index}.${runId}`);
-	const scriptPath = writeCommandScript(dir, completionFile, command);
-	const startupCmd = buildStartupCommand(scriptPath);
-	run(`tmux respawn-pane -t ${session}:${index} -k -c "${cwd}" "${tmuxEscape(startupCmd)}"`);
-
-	wireSilence(dir, session, index, runId, silence);
-	return { index, runId };
+	sendCommand(session, index, command);
+	return index;
 }
 
 /**
- * Start a command in window 0 of a freshly created session.
+ * Send a command in window 0 of a freshly created session.
  */
 export function startCommandInFirstWindow(
-	dir: string,
 	session: string,
 	windowName: string,
-	cwd: string,
 	command: string,
-	silence?: SilenceConfig,
-): string {
+): void {
 	run(`tmux rename-window -t ${session}:0 "${tmuxEscape(windowName)}"`);
-	return runCommandInPane(dir, session, 0, cwd, command, silence);
+	sendCommand(session, 0, command);
 }
 
-function wireSilence(dir: string, session: string, windowIndex: number, runId: string, silence?: SilenceConfig): void {
-	if (!silence || silence.timeout <= 0) return;
-	const silenceFile = join(dir, `silence.${session}.${windowIndex}.${runId}`);
-	run(`tmux set-option -w -t ${session}:${windowIndex} monitor-silence ${silence.timeout}`);
-	const alertHook = `run-shell 'echo 1 > "${tmuxEscape(silenceFile)}"' ; kill-session -C -t ${session}`;
+// ---------------------------------------------------------------------------
+// Silence wiring (tmux hooks — invisible to user)
+// ---------------------------------------------------------------------------
+
+function wireSilence(session: string, windowIndex: number, config: SilenceConfig): void {
+	if (config.timeout <= 0) return;
+	run(`tmux set-option -w -t ${session}:${windowIndex} monitor-silence ${config.timeout}`);
+	// Hook sets an env var that we check during polling — no files needed
+	const alertHook = `set-environment -t ${session} PI_SILENCE_${windowIndex} 1`;
 	run(`tmux set-hook -w -t ${session}:${windowIndex} alert-silence "${tmuxEscape(alertHook)}"`);
+}
+
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
+
+/** Stop all trackers. Call on session shutdown. */
+export function stopAll(): void {
+	for (const tracker of completionTrackers.values()) {
+		clearInterval(tracker.timer);
+	}
+	completionTrackers.clear();
+	silenceTrackers.clear();
 }
