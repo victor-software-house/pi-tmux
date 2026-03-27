@@ -29,7 +29,7 @@ Provides a `tmux` tool for the agent with these actions:
 - **kill** -- Kill the entire session.
 - **mute** -- Suppress silence notifications for a window. Use when a command is expected to have long silence periods, not waiting for input.
 
-Each command's script is echoed before execution (`cat "$0"`) so you can see exactly what's running -- including heredocs and complex constructs that `set -x` would miss.
+Commands run in a wrapper script for exit-code tracking and silence detection.
 
 ### Silence detection
 

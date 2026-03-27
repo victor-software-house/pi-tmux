@@ -245,7 +245,7 @@ export function executeWithSignal(dir: string, session: string, windowIndex: num
 
 	writeFileSync(
 		scriptFile,
-		`#!/usr/bin/env bash\ncat "$0"\necho '---'\n${command}\n_exit_code=$?\necho $_exit_code > "${completionFile}"\n`,
+		`#!/usr/bin/env bash\n${command}\n_exit_code=$?\necho $_exit_code > "${completionFile}"\n`,
 		{ mode: 0o755 },
 	);
 
