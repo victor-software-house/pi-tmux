@@ -4,7 +4,7 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type { AutoAttachMode, AttachLayout, TmuxSettings } from "./types.js";
 import { saveSettings, AUTO_ATTACH_VALUES, LAYOUT_VALUES, MAX_WINDOWS_RANGE } from "./settings.js";
-import { exec, execSafe, getProjectRoot, sessionName, sessionExists, getWindows, capturePanes } from "./session.js";
+import { run, tryRun, resolveProjectRoot, deriveSessionName, isSessionAlive, listWindows, captureOutput } from "./session.js";
 import { attachToSession, closeAttachedSessions } from "./terminal.js";
 
 let currentSettings: TmuxSettings;
@@ -13,25 +13,22 @@ export function initCommandSettings(settings: TmuxSettings): void {
 	currentSettings = settings;
 }
 
-const TMUX_SUBCOMMANDS = ["attach", "tab", "split", "hsplit", "show", "cat", "clear", "kill", "help"];
+const SUBCOMMANDS = ["attach", "tab", "split", "hsplit", "show", "cat", "clear", "kill", "help"];
 
 export function registerTmuxCommand(pi: ExtensionAPI, getPiSessionId: () => string | null): void {
 	pi.registerCommand("tmux", {
 		description: "Manage tmux session. /tmux opens settings. /tmux attach|tab|split|hsplit|show|cat|clear|kill|help",
 		getArgumentCompletions(prefix) {
 			const lp = (prefix ?? "").toLowerCase();
-			const matches = TMUX_SUBCOMMANDS.filter((s) => s.startsWith(lp));
+			const matches = SUBCOMMANDS.filter((s) => s.startsWith(lp));
 			return matches.length > 0 ? matches.map((s) => ({ label: s, value: s })) : null;
 		},
 		handler: async (args, ctx) => {
 			const sub = (args ?? "").trim().toLowerCase();
-			const projectRoot = getProjectRoot(ctx.cwd);
-			const session = sessionName(projectRoot);
+			const root = resolveProjectRoot(ctx.cwd);
+			const session = deriveSessionName(root);
 
-			if (!sub) {
-				await showSettingsPanel(ctx, pi);
-				return;
-			}
+			if (!sub) return showSettingsPanel(ctx);
 
 			const attachModes: Record<string, AttachLayout> = {
 				attach: currentSettings.defaultLayout,
@@ -40,90 +37,49 @@ export function registerTmuxCommand(pi: ExtensionAPI, getPiSessionId: () => stri
 				hsplit: "split-horizontal",
 			};
 			if (sub in attachModes) {
-				const piSessionId = getPiSessionId();
-				const msg = attachToSession(ctx.cwd, { mode: attachModes[sub], piSessionId });
+				const msg = attachToSession(ctx.cwd, { mode: attachModes[sub], piSessionId: getPiSessionId() });
 				ctx.ui.notify(msg, msg.startsWith("Failed") || msg.startsWith("No") ? "error" : "info");
 				return;
 			}
 
-			if (sub === "show") {
-				if (!sessionExists(session)) {
-					ctx.ui.notify("No tmux session for this project.", "info");
-					return;
-				}
-				const windows = getWindows(session);
-				const lines = windows.map((w) => `  :${w.index}  ${w.title}${w.active ? "  (active)" : ""}`);
-				ctx.ui.notify(`Session ${session} — ${windows.length} window(s)\n${lines.join("\n")}`, "info");
-				return;
-			}
-
-			if (sub === "cat") {
-				await handleCat(ctx, pi, session);
-				return;
-			}
-
-			if (sub === "clear") {
-				handleClear(ctx, session);
-				return;
-			}
-
-			if (sub === "kill") {
-				if (!sessionExists(session)) {
-					ctx.ui.notify("No tmux session to kill.", "info");
-					return;
-				}
-				closeAttachedSessions(session);
-				exec(`tmux kill-session -t ${session}`);
-				ctx.ui.notify(`Killed session ${session}.`, "info");
-				return;
-			}
-
-			if (sub === "help") {
-				ctx.ui.notify(
-					[
-						"/tmux              Settings panel",
-						"/tmux attach       Attach (default layout)",
-						"/tmux tab          Attach as tab",
-						"/tmux split        Attach as vertical split",
-						"/tmux hsplit        Attach as horizontal split",
-						"/tmux show         Session info",
-						"/tmux cat          Capture output into conversation",
-						"/tmux clear        Kill idle windows",
-						"/tmux kill         Kill session",
-						"/tmux help         This help",
-					].join("\n"),
-					"info",
-				);
-				return;
-			}
+			if (sub === "show") return handleShow(ctx, session);
+			if (sub === "cat") return handleCat(ctx, pi, session);
+			if (sub === "clear") return handleClear(ctx, session);
+			if (sub === "kill") return handleKill(ctx, session);
+			if (sub === "help") return handleHelp(ctx);
 
 			ctx.ui.notify(`Unknown: /tmux ${sub}. Try /tmux help`, "warning");
 		},
 	});
 }
 
-async function showSettingsPanel(ctx: ExtensionCommandContext, _pi: ExtensionAPI): Promise<void> {
+// ---------------------------------------------------------------------------
+// Settings panel
+// ---------------------------------------------------------------------------
+
+async function showSettingsPanel(ctx: ExtensionCommandContext): Promise<void> {
 	if (!ctx.hasUI) {
-		ctx.ui.notify(
-			[`auto-attach: ${currentSettings.autoAttach}`, `default-layout: ${currentSettings.defaultLayout}`, `allow-mute: ${currentSettings.allowMute}`, `max-windows: ${currentSettings.maxWindows}`].join(
-				"\n",
-			),
-			"info",
-		);
+		const lines = [
+			`auto-attach: ${currentSettings.autoAttach}`,
+			`default-layout: ${currentSettings.defaultLayout}`,
+			`allow-mute: ${currentSettings.allowMute}`,
+			`max-windows: ${currentSettings.maxWindows}`,
+		];
+		ctx.ui.notify(lines.join("\n"), "info");
 		return;
 	}
 
 	const { DynamicBorder, getSettingsListTheme, rawKeyHint } = await import("@mariozechner/pi-coding-agent");
 	const { Container, SettingsList, Spacer, Text: TuiText } = await import("@mariozechner/pi-tui");
 
-	let settingsChanged = false;
+	let changed = false;
 
 	await ctx.ui.custom((_tui, theme, _kb, done) => {
-		const maxWindowValues = Array.from({ length: 10 }, (_, i) => String((i + 1) * 5));
-		const currentMaxStr = String(currentSettings.maxWindows);
-		if (!maxWindowValues.includes(currentMaxStr)) {
-			maxWindowValues.push(currentMaxStr);
-			maxWindowValues.sort((a, b) => Number(a) - Number(b));
+		const maxValues = Array.from({ length: 10 }, (_, i) => String((i + 1) * 5));
+		const currentMax = String(currentSettings.maxWindows);
+		if (!maxValues.includes(currentMax)) {
+			maxValues.push(currentMax);
+			maxValues.sort((a, b) => Number(a) - Number(b));
 		}
 
 		const items = [
@@ -152,8 +108,8 @@ async function showSettingsPanel(ctx: ExtensionCommandContext, _pi: ExtensionAPI
 				id: "maxWindows",
 				label: "Max windows per session",
 				description: "Maximum number of tmux windows the model can create",
-				currentValue: currentMaxStr,
-				values: maxWindowValues,
+				currentValue: currentMax,
+				values: maxValues,
 			},
 		];
 
@@ -168,7 +124,7 @@ async function showSettingsPanel(ctx: ExtensionCommandContext, _pi: ExtensionAPI
 		container.addChild(new Spacer(1));
 
 		const settingsList = new SettingsList(items, 10, getSettingsListTheme(), (id, newValue) => {
-			settingsChanged = true;
+			changed = true;
 			if (id === "autoAttach" && AUTO_ATTACH_VALUES.includes(newValue as AutoAttachMode)) {
 				currentSettings.autoAttach = newValue as AutoAttachMode;
 			} else if (id === "defaultLayout" && LAYOUT_VALUES.includes(newValue as AttachLayout)) {
@@ -187,18 +143,17 @@ async function showSettingsPanel(ctx: ExtensionCommandContext, _pi: ExtensionAPI
 		container.addChild(settingsList);
 		container.addChild(new Spacer(1));
 		container.addChild(new DynamicBorder());
+
 		return {
 			render: (width: number) => container.render(width),
 			invalidate: () => container.invalidate(),
-			handleInput: (data: string) => {
-				settingsList.handleInput?.(data);
-			},
+			handleInput: (data: string) => { settingsList.handleInput?.(data); },
 		};
 	});
 
-	if (settingsChanged) {
-		const shouldReload = await ctx.ui.confirm("Reload Required", "Settings changed. Reload pi to update tool capabilities?");
-		if (shouldReload) {
+	if (changed) {
+		const reload = await ctx.ui.confirm("Reload Required", "Settings changed. Reload pi to update tool capabilities?");
+		if (reload) {
 			await ctx.reload();
 			return;
 		}
@@ -206,19 +161,32 @@ async function showSettingsPanel(ctx: ExtensionCommandContext, _pi: ExtensionAPI
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Subcommand handlers
+// ---------------------------------------------------------------------------
+
+function handleShow(ctx: ExtensionCommandContext, session: string): void {
+	if (!isSessionAlive(session)) {
+		ctx.ui.notify("No tmux session for this project.", "info");
+		return;
+	}
+	const windows = listWindows(session);
+	const formatted = windows.map((w) => `  :${w.index}  ${w.title}${w.active ? "  (active)" : ""}`);
+	ctx.ui.notify(`Session ${session} — ${windows.length} window(s)\n${formatted.join("\n")}`, "info");
+}
+
 async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session: string): Promise<void> {
-	if (!sessionExists(session)) {
+	if (!isSessionAlive(session)) {
 		ctx.ui.notify("No tmux session for this project.", "error");
 		return;
 	}
-	const windows = getWindows(session);
+	const windows = listWindows(session);
 	if (windows.length === 0) {
 		ctx.ui.notify("No windows in session.", "error");
 		return;
 	}
 
 	const options = ["all windows", ...windows.map((w) => `:${w.index}  ${w.title}${w.active ? "  (active)" : ""}`)];
-
 	const choice = await ctx.ui.select("Capture output from:", options);
 	if (choice === undefined || choice === null) return;
 
@@ -226,29 +194,27 @@ async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session
 	if (String(choice) === "0" || choice === "all windows") {
 		target = "all";
 	} else {
-		const idx = typeof choice === "number" ? choice - 1 : options.indexOf(String(choice)) - 1;
-		const win = windows[idx];
-		if (!win) {
-			ctx.ui.notify("Invalid window selection.", "error");
+		const choiceIdx = typeof choice === "number" ? choice - 1 : options.indexOf(String(choice)) - 1;
+		const selectedWindow = windows[choiceIdx];
+		if (!selectedWindow) {
+			ctx.ui.notify("Invalid selection.", "error");
 			return;
 		}
-		target = win.index;
+		target = selectedWindow.index;
 	}
-	const output = capturePanes(session, target);
 
-	pi.sendUserMessage(`Here is the tmux output:\n\n\`\`\`\n${output}\n\`\`\``, {
-		deliverAs: "followUp",
-	});
+	const output = captureOutput(session, target);
+	pi.sendUserMessage(`Here is the tmux output:\n\n\`\`\`\n${output}\n\`\`\``, { deliverAs: "followUp" });
 }
 
 function handleClear(ctx: ExtensionCommandContext, session: string): void {
-	if (!sessionExists(session)) {
+	if (!isSessionAlive(session)) {
 		ctx.ui.notify("No tmux session for this project.", "error");
 		return;
 	}
 
-	const shells = new Set(["bash", "zsh", "sh", "fish", "dash"]);
-	const raw = execSafe(`tmux list-windows -t ${session} -F "#{window_index}|||#{window_name}|||#{pane_current_command}|||#{pane_pid}"`);
+	const idleShells = new Set(["bash", "zsh", "sh", "fish", "dash"]);
+	const raw = tryRun(`tmux list-windows -t ${session} -F "#{window_index}\t#{pane_current_command}\t#{pane_pid}"`);
 	if (!raw) {
 		ctx.ui.notify("No windows in session.", "error");
 		return;
@@ -257,14 +223,10 @@ function handleClear(ctx: ExtensionCommandContext, session: string): void {
 	const idle = raw
 		.split("\n")
 		.map((line) => {
-			const [idx, _name, cmd, pid] = line.split("|||");
-			return { index: parseInt(idx ?? "0"), cmd: cmd ?? "", pid: pid ?? "" };
+			const parts = line.split("\t");
+			return { index: parseInt(parts[0] ?? "0", 10), cmd: parts[1] ?? "", pid: parts[2] ?? "" };
 		})
-		.filter((w) => {
-			if (!shells.has(w.cmd)) return false;
-			const children = execSafe(`pgrep -P ${w.pid}`);
-			return !children;
-		});
+		.filter((w) => idleShells.has(w.cmd) && !tryRun(`pgrep -P ${w.pid}`));
 
 	if (idle.length === 0) {
 		ctx.ui.notify("No idle windows to clear.", "info");
@@ -272,12 +234,40 @@ function handleClear(ctx: ExtensionCommandContext, session: string): void {
 	}
 
 	for (const w of idle) {
-		execSafe(`tmux kill-window -t ${session}:${w.index}`);
+		tryRun(`tmux kill-window -t ${session}:${w.index}`);
 	}
 
-	if (!sessionExists(session)) {
-		ctx.ui.notify(`Cleared ${idle.length} idle window(s) — session closed.`, "info");
-	} else {
-		ctx.ui.notify(`Cleared ${idle.length} idle window(s).`, "info");
+	const remaining = isSessionAlive(session);
+	ctx.ui.notify(
+		remaining ? `Cleared ${idle.length} idle window(s).` : `Cleared ${idle.length} idle window(s) — session closed.`,
+		"info",
+	);
+}
+
+function handleKill(ctx: ExtensionCommandContext, session: string): void {
+	if (!isSessionAlive(session)) {
+		ctx.ui.notify("No tmux session to kill.", "info");
+		return;
 	}
+	closeAttachedSessions(session);
+	run(`tmux kill-session -t ${session}`);
+	ctx.ui.notify(`Killed session ${session}.`, "info");
+}
+
+function handleHelp(ctx: ExtensionCommandContext): void {
+	ctx.ui.notify(
+		[
+			"/tmux              Settings panel",
+			"/tmux attach       Attach (default layout)",
+			"/tmux tab          Attach as tab",
+			"/tmux split        Attach as vertical split",
+			"/tmux hsplit        Attach as horizontal split",
+			"/tmux show         Session info",
+			"/tmux cat          Capture output into conversation",
+			"/tmux clear        Kill idle windows",
+			"/tmux kill         Kill session",
+			"/tmux help         This help",
+		].join("\n"),
+		"info",
+	);
 }

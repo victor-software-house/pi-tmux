@@ -1,71 +1,80 @@
 /**
- * tmux session management — exec helpers, session naming, window queries.
+ * tmux session primitives — process execution, project root resolution,
+ * session identity, and window introspection.
  */
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import type { WindowInfo } from "./types.js";
 
-export function exec(cmd: string): string {
-	return execSync(cmd, { encoding: "utf-8", timeout: 10000 }).trim();
+/** Run a shell command synchronously, returning trimmed stdout. Throws on failure. */
+export function run(cmd: string): string {
+	return execSync(cmd, { encoding: "utf-8", timeout: 10_000 }).trim();
 }
 
-export function execSafe(cmd: string): string | null {
+/** Run a shell command, returning stdout on success or null on any error. */
+export function tryRun(cmd: string): string | null {
 	try {
-		return exec(cmd);
+		return run(cmd);
 	} catch {
 		return null;
 	}
 }
 
-function getGitRoot(cwd: string): string | null {
+/**
+ * Resolve the project root for tmux session scoping.
+ * Uses git worktree root when available, otherwise falls back to cwd.
+ */
+export function resolveProjectRoot(cwd: string): string {
 	try {
-		return execSync("git rev-parse --show-toplevel", {
-			encoding: "utf-8",
-			cwd,
-			timeout: 5000,
-		}).trim();
+		return execSync("git rev-parse --show-toplevel", { encoding: "utf-8", cwd, timeout: 5_000 }).trim();
 	} catch {
-		return null;
+		return cwd;
 	}
 }
 
-/** Prefers git root, falls back to cwd so tmux works outside git repos. */
-export function getProjectRoot(cwd: string): string {
-	return getGitRoot(cwd) ?? cwd;
+/** Derive a deterministic, human-readable tmux session name from a directory path. */
+export function deriveSessionName(projectRoot: string): string {
+	const dirName = projectRoot.split("/").pop() || "pi";
+	const short = dirName.slice(0, 16).toLowerCase();
+	const fingerprint = createHash("md5").update(projectRoot).digest("hex").slice(0, 8);
+	return `${short}-${fingerprint}`;
 }
 
-export function sessionName(root: string): string {
-	const slug = (root.split("/").pop() ?? "shell").slice(0, 16).toLowerCase();
-	const hash = createHash("md5").update(root).digest("hex").slice(0, 8);
-	return `${slug}-${hash}`;
+/** Check whether a tmux session with the given name is alive. */
+export function isSessionAlive(name: string): boolean {
+	return tryRun(`tmux has-session -t ${name} 2>/dev/null && echo ok`) === "ok";
 }
 
-export function sessionExists(name: string): boolean {
-	return execSafe(`tmux has-session -t ${name} 2>/dev/null && echo yes`) === "yes";
-}
-
-export function getWindows(name: string): WindowInfo[] {
-	const raw = execSafe(`tmux list-windows -t ${name} -F "#{window_index}|||#{window_name}|||#{window_active}"`);
+/** List all windows in a tmux session. Returns empty array if session doesn't exist. */
+export function listWindows(sessionName: string): WindowInfo[] {
+	const raw = tryRun(`tmux list-windows -t ${sessionName} -F "#{window_index}\t#{window_name}\t#{window_active}"`);
 	if (!raw) return [];
 	return raw.split("\n").map((line) => {
-		const [index, title, active] = line.split("|||");
-		return { index: parseInt(index ?? "0"), title: title ?? "", active: active === "1" };
+		const parts = line.split("\t");
+		return {
+			index: parseInt(parts[0] ?? "0", 10),
+			title: parts[1] ?? "",
+			active: parts[2] === "1",
+		};
 	});
 }
 
-export function capturePanes(name: string, window: number | "all"): string {
-	if (window === "all") {
-		const windows = getWindows(name);
-		return windows
-			.map((w) => {
-				const output = execSafe(`tmux capture-pane -t ${name}:${w.index} -p -S -50`);
-				return `── window ${w.index}: ${w.title} ──\n${output ?? "(empty)"}`;
-			})
-			.join("\n\n");
+/** Capture scrollback from one or all windows. Returns formatted output. */
+export function captureOutput(sessionName: string, target: number | "all"): string {
+	if (target !== "all") {
+		return tryRun(`tmux capture-pane -t ${sessionName}:${target} -p -S -50`) ?? "(no output)";
 	}
-	return execSafe(`tmux capture-pane -t ${name}:${window} -p -S -50`) ?? "(empty)";
+	const windows = listWindows(sessionName);
+	if (windows.length === 0) return "(no windows)";
+	return windows
+		.map((w) => {
+			const paneOutput = tryRun(`tmux capture-pane -t ${sessionName}:${w.index} -p -S -50`) ?? "(no output)";
+			return `-- window ${w.index}: ${w.title} --\n${paneOutput}`;
+		})
+		.join("\n\n");
 }
 
-export function escapeForTmux(s: string): string {
+/** Escape double quotes for use inside tmux command strings. */
+export function tmuxEscape(s: string): string {
 	return s.replace(/"/g, '\\"');
 }
