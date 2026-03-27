@@ -1,8 +1,5 @@
-import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { existsSync, mkdirSync, writeFileSync, unlinkSync, rmSync } from "node:fs";
-import { join } from "node:path";
-import { tmpdir } from "node:os";
-import { loadSettings, saveSettings, getFlags, when, AUTO_ATTACH_VALUES, LAYOUT_VALUES } from "../extensions/settings.js";
+import { describe, expect, test } from "bun:test";
+import { getFlags, when, AUTO_ATTACH_VALUES, LAYOUT_VALUES } from "../extensions/settings.js";
 
 describe("when() helper", () => {
 	test("returns items when condition is true", () => {
