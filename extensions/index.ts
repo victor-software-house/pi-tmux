@@ -2,7 +2,7 @@
  * pi-tmux — tmux session management per project.
  *
  * Tool: tmux (run/peek/list/kill + attach/mute gated by settings)
- * Commands: /tmux (settings), /tmux attach|tab|split|cat|clear|show|kill|help
+ * Commands: /tmux (settings), /tmux show|status|verify|path|reset|attach|tab|split|hsplit|cat|clear|kill|help
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
