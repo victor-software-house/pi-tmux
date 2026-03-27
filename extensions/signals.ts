@@ -273,8 +273,9 @@ export function sendCommandPreserveHistory(
 ): string {
 	const runId = randomBytes(4).toString("hex");
 	const completionFile = join(dir, `${session}.${windowIndex}.${runId}`);
-	// Inline exit capture — echo shows command + minimal suffix
-	const inlineCmd = `${command}; _pi_ec=$?; echo $_pi_ec > '${completionFile}'`;
+	// Inline exit capture. Use \$ so the outer shell (Node execSync) does not
+	// expand $? and $_pi_ec — they must be evaluated by the pane's interactive shell.
+	const inlineCmd = `${command}; _pi_ec=\\$?; echo \\$_pi_ec > '${completionFile}'`;
 	run(`tmux send-keys -t ${session}:${windowIndex} "${tmuxEscape(inlineCmd)}" C-m`);
 	wireSilence(dir, session, windowIndex, runId, silence);
 	return runId;
