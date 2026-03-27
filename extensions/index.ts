@@ -9,7 +9,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import type { AttachLayout, FeatureFlags, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
-import { run, tryRun, resolveProjectRoot, deriveSessionName, isSessionAlive, listWindows, captureOutput, tmuxEscape } from "./session.js";
+import { run, tryRun, resolveProjectRoot, deriveSessionName, isSessionAlive, isWindowIdle, listWindows, captureOutput, tmuxEscape } from "./session.js";
 import { getActiveiTermSession, attachToSession, closeAttachedSessions } from "./terminal.js";
 import { initSignalDir, getSignalDir, startWatching, stopWatching, registerSilence, executeWithSignal, createWindowWithCommand, clearSilenceForWindow } from "./signals.js";
 import { buildParams, buildDescription, buildPromptSnippet, buildPromptGuidelines } from "./tool-builder.js";
@@ -80,32 +80,11 @@ export default function (pi: ExtensionAPI) {
 					if (!params.command) {
 						return { content: [{ type: "text", text: "Error: 'command' is required." }], details: {} };
 					}
-					if (!params.name) {
-						return {
-							content: [{ type: "text", text: "Error: 'name' is required. Provide a unique window name (e.g. 'dev-server')." }],
-							details: {},
-						};
-					}
 
-					const windowName = params.name.slice(0, 30);
+					// Auto-derive window name from command if not provided
+					const windowName = (params.name ?? params.command.trim().split(/[|;&\s]/)[0]?.split("/").pop() ?? "shell").slice(0, 30);
 					const alive = isSessionAlive(session);
-
-					if (alive) {
-						const windows = listWindows(session);
-						const dup = windows.find((w) => w.title === windowName);
-						if (dup) {
-							return {
-								content: [{ type: "text", text: `Error: window '${windowName}' already exists (:${dup.index}). Choose a unique name or kill the existing window.` }],
-								details: { existingWindow: dup.index },
-							};
-						}
-						if (windows.length >= currentSettings.maxWindows) {
-							return {
-								content: [{ type: "text", text: `Error: ${windows.length} windows open (max: ${currentSettings.maxWindows}). Clear idle windows first (/tmux clear).` }],
-								details: { windowCount: windows.length, max: currentSettings.maxWindows },
-							};
-						}
-					}
+					const reuse = currentSettings.windowReuse;
 
 					startWatching(pi);
 					const dir = getSignalDir();
@@ -116,17 +95,55 @@ export default function (pi: ExtensionAPI) {
 
 					let windowIndex: number;
 					let runId: string;
+					let reused = false;
 
 					if (!alive) {
+						// No session yet — always create
 						run(`tmux new-session -d -s ${session} -n "${tmuxEscape(windowName)}" -c "${windowCwd}"`);
 						run(`tmux set-option -t ${session} silence-action any`);
 						runId = executeWithSignal(dir, session, 0, params.command, silence);
 						windowIndex = 0;
 					} else {
-						if (silence) tryRun(`tmux set-option -t ${session} silence-action any`);
-						const result = createWindowWithCommand(dir, session, windowCwd, params.command, windowName, silence);
-						windowIndex = result.index;
-						runId = result.runId;
+						const windows = listWindows(session);
+
+						// Find an idle window to reuse
+						let reuseCandidate: (typeof windows)[number] | undefined;
+						if (reuse !== "never") {
+							if (params.name) {
+								// Named: prefer matching name, then fall back to last idle if reuse=last
+								reuseCandidate = windows
+									.filter((w) => w.title === params.name && isWindowIdle(session, w.index))
+									.at(-1);
+								if (!reuseCandidate && reuse === "last") {
+									reuseCandidate = [...windows].reverse().find((w) => isWindowIdle(session, w.index));
+								}
+							} else if (reuse === "last") {
+								// No name: reuse last idle window
+								reuseCandidate = [...windows].reverse().find((w) => isWindowIdle(session, w.index));
+							}
+						}
+
+						if (reuseCandidate) {
+							// Reuse existing idle window — rename it and send the command
+							const idx = reuseCandidate.index;
+							tryRun(`tmux rename-window -t ${session}:${idx} "${tmuxEscape(windowName)}"`);
+							if (silence) tryRun(`tmux set-option -t ${session} silence-action any`);
+							runId = executeWithSignal(dir, session, idx, params.command, silence);
+							windowIndex = idx;
+							reused = true;
+						} else {
+							// No idle candidate — create new window (respecting maxWindows)
+							if (windows.length >= currentSettings.maxWindows) {
+								return {
+									content: [{ type: "text", text: `Error: ${windows.length} windows open (max: ${currentSettings.maxWindows}). Clear idle windows first (/tmux:clear).` }],
+									details: { windowCount: windows.length, max: currentSettings.maxWindows },
+								};
+							}
+							if (silence) tryRun(`tmux set-option -t ${session} silence-action any`);
+							const result = createWindowWithCommand(dir, session, windowCwd, params.command, windowName, silence);
+							windowIndex = result.index;
+							runId = result.runId;
+						}
 					}
 
 					if (silence) registerSilence(session, windowIndex, runId, silence);
@@ -145,9 +162,10 @@ export default function (pi: ExtensionAPI) {
 						}
 					}
 
+					const verb = !alive ? "Created" : reused ? "Reused" : "Added to";
 					return {
-						content: [{ type: "text", text: `${alive ? "Added to" : "Created"} session ${session}\n  :${windowIndex}  ${windowName}: ${params.command}${attachNote}` }],
-						details: { session, windowIndex, created: !alive },
+						content: [{ type: "text", text: `${verb} session ${session}\n  :${windowIndex}  ${windowName}: ${params.command}${attachNote}` }],
+						details: { session, windowIndex, created: !alive, reused },
 					};
 				}
 

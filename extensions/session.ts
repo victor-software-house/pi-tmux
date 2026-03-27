@@ -78,6 +78,28 @@ export function captureOutput(sessionName: string, target: number | "all"): stri
 		.join("\n\n");
 }
 
+/**
+ * Check whether a tmux window is idle — shell at prompt with no running child processes.
+ * Uses the same logic as /tmux:clear.
+ */
+export function isWindowIdle(sessionName: string, windowIndex: number): boolean {
+	const idleShells = new Set(["bash", "zsh", "sh", "fish", "dash"]);
+	const raw = tryRun(
+		`tmux list-windows -t ${sessionName} -F "#{window_index}\t#{pane_current_command}\t#{pane_pid}"`,
+	);
+	if (!raw) return false;
+	for (const line of raw.split("\n")) {
+		const parts = line.split("\t");
+		const idx = parseInt(parts[0] ?? "", 10);
+		if (idx !== windowIndex) continue;
+		const cmd = parts[1] ?? "";
+		const pid = parts[2] ?? "";
+		if (!idleShells.has(cmd)) return false;
+		return !tryRun(`pgrep -P ${pid}`);
+	}
+	return false;
+}
+
 /** Escape double quotes for use inside tmux command strings. */
 export function tmuxEscape(s: string): string {
 	return s.replace(/"/g, '\\"');

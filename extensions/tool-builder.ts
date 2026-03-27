@@ -18,7 +18,8 @@ export function buildParams(flags: FeatureFlags) {
 		command: Type.Optional(Type.String({ description: "Command to execute (for 'run' action)." })),
 		name: Type.Optional(
 			Type.String({
-				description: "Unique window name (REQUIRED for 'run'). Must not duplicate an existing window name. E.g. 'dev-server', 'test-suite'.",
+				description:
+					"Window name for 'run'. Optional — omit to reuse the last idle window (default) or auto-name from the command. Provide a name to target a specific window by name. E.g. 'dev-server', 'test-suite'.",
 			}),
 		),
 		cwd: Type.Optional(
@@ -107,7 +108,7 @@ export function buildPromptGuidelines(flags: FeatureFlags): string[] {
 		),
 		"Use silenceTimeout when a command might prompt for input (installers, confirmations, interactive tools). Defaults: 60s initial, 1.5x backoff, 5 min cap.",
 		"Do not kill sessions unless explicitly asked — session history is useful for later inspection via peek.",
-		"Avoid creating unnecessary windows. Reuse existing windows with tmux send-keys when appropriate.",
+		"Omit 'name' to reuse the last idle window automatically (default). Provide 'name' to target a specific named window.",
 		...when(flags.canMute, "Only mute windows running commands with expected long idle periods (large builds, background daemons). Never mute interactive or input-waiting processes."),
 	];
 }

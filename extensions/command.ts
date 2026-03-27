@@ -12,12 +12,13 @@
  * /tmux hsplit    Attach as horizontal split
  */
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import type { AutoAttachMode, AttachLayout, TmuxSettings } from "./types.js";
+import type { AutoAttachMode, AttachLayout, TmuxSettings, WindowReuse } from "./types.js";
 import {
 	saveSettings,
 	getConfigPath,
 	AUTO_ATTACH_VALUES,
 	LAYOUT_VALUES,
+	WINDOW_REUSE_VALUES,
 	MAX_WINDOWS_RANGE,
 } from "./settings.js";
 import { tryRun, resolveProjectRoot, deriveSessionName, isSessionAlive, listWindows, captureOutput } from "./session.js";
@@ -170,6 +171,8 @@ function applySettingChange(id: string, newValue: string): void {
 		if (!Number.isNaN(n) && n >= MAX_WINDOWS_RANGE.min && n <= MAX_WINDOWS_RANGE.max) {
 			currentSettings.maxWindows = n;
 		}
+	} else if (id === "windowReuse" && isWindowReuse(newValue)) {
+		currentSettings.windowReuse = newValue;
 	}
 }
 
@@ -179,6 +182,10 @@ function isAutoAttachMode(value: string): value is AutoAttachMode {
 
 function isAttachLayout(value: string): value is AttachLayout {
 	return LAYOUT_VALUES.includes(value as AttachLayout);
+}
+
+function isWindowReuse(value: string): value is WindowReuse {
+	return WINDOW_REUSE_VALUES.includes(value as WindowReuse);
 }
 
 // ---------------------------------------------------------------------------
@@ -218,6 +225,16 @@ function maxWindowsDescription(): string {
 	return `Model can open up to ${String(currentSettings.maxWindows)} tmux windows`;
 }
 
+const WINDOW_REUSE_DESCRIPTIONS: Record<string, string> = {
+	last: "Reuse the last idle window when no name given; reuse matching named window otherwise",
+	named: "Only reuse a window when a matching name is provided; always create new when unnamed",
+	never: "Always create a new window for every run command",
+};
+
+function windowReuseDescription(): string {
+	return WINDOW_REUSE_DESCRIPTIONS[currentSettings.windowReuse] ?? "";
+}
+
 interface MutableItem {
 	id: string;
 	description?: string;
@@ -237,6 +254,9 @@ function refreshDescriptions(items: MutableItem[]): void {
 				break;
 			case "maxWindows":
 				item.description = maxWindowsDescription();
+				break;
+			case "windowReuse":
+				item.description = windowReuseDescription();
 				break;
 		}
 	}
@@ -271,6 +291,13 @@ function buildSettingItems(maxValues: string[]): MutableItem[] & { id: string; l
 			description: maxWindowsDescription(),
 			currentValue: String(currentSettings.maxWindows),
 			values: maxValues,
+		},
+		{
+			id: "windowReuse",
+			label: "Window reuse",
+			description: windowReuseDescription(),
+			currentValue: currentSettings.windowReuse,
+			values: [...WINDOW_REUSE_VALUES],
 		},
 	];
 }

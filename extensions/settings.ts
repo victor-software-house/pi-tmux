@@ -1,10 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AutoAttachMode, AttachLayout, FeatureFlags, TmuxSettings } from "./types.js";
+import type { AutoAttachMode, AttachLayout, FeatureFlags, TmuxSettings, WindowReuse } from "./types.js";
 
 export const AUTO_ATTACH_VALUES: readonly AutoAttachMode[] = ["never", "session-create", "always"];
 export const LAYOUT_VALUES: readonly AttachLayout[] = ["split-vertical", "tab", "split-horizontal"];
+export const WINDOW_REUSE_VALUES: readonly WindowReuse[] = ["last", "named", "never"];
 export const MAX_WINDOWS_RANGE = { min: 1, max: 50 } as const;
 
 const DEFAULT_SETTINGS: TmuxSettings = {
@@ -12,6 +13,7 @@ const DEFAULT_SETTINGS: TmuxSettings = {
 	defaultLayout: "split-vertical",
 	allowMute: true,
 	maxWindows: 10,
+	windowReuse: "last",
 };
 
 const SETTINGS_PATH = join(homedir(), ".pi", "agent", ".pi-tmux.json");
@@ -32,6 +34,7 @@ export function loadSettings(): TmuxSettings {
 				typeof raw?.maxWindows === "number" && raw.maxWindows >= MAX_WINDOWS_RANGE.min && raw.maxWindows <= MAX_WINDOWS_RANGE.max
 					? Math.floor(raw.maxWindows)
 					: DEFAULT_SETTINGS.maxWindows,
+			windowReuse: WINDOW_REUSE_VALUES.includes(raw?.windowReuse) ? raw.windowReuse : DEFAULT_SETTINGS.windowReuse,
 		};
 	} catch {
 		return { ...DEFAULT_SETTINGS };

@@ -1,11 +1,13 @@
 export type AutoAttachMode = "never" | "session-create" | "always";
 export type AttachLayout = "split-vertical" | "tab" | "split-horizontal";
+export type WindowReuse = "last" | "named" | "never";
 
 export interface TmuxSettings {
 	autoAttach: AutoAttachMode;
 	defaultLayout: AttachLayout;
 	allowMute: boolean;
 	maxWindows: number;
+	windowReuse: WindowReuse;
 }
 
 export interface FeatureFlags {
