@@ -49,6 +49,21 @@ function trackPane(tmuxSession: string, itermId: string): void {
 	panes.add(itermId);
 }
 
+/** Check whether we already have a tracked attached pane for this session. */
+export function hasAttachedPane(tmuxSession: string): boolean {
+	const panes = attachedPanes.get(tmuxSession);
+	if (!panes || panes.size === 0) return false;
+	// Verify at least one tracked pane is still alive
+	if (!isIt2apiAvailable()) return panes.size > 0;
+	for (const paneId of panes) {
+		const check = tryRun(`${IT2API} list-sessions 2>/dev/null`);
+		if (check && check.includes(paneId)) return true;
+	}
+	// All tracked panes are dead — clean up
+	panes.clear();
+	return false;
+}
+
 export function closeAttachedSessions(tmuxSession: string): void {
 	const panes = attachedPanes.get(tmuxSession);
 	if (!panes || !isIt2apiAvailable()) return;

@@ -10,7 +10,7 @@ import { Text } from "@mariozechner/pi-tui";
 import type { AttachLayout, FeatureFlags, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
 import { run, tryRun, resolveProjectRoot, deriveSessionName, deriveWindowName, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, tmuxEscape } from "./session.js";
-import { getActiveiTermSession, attachToSession, closeAttachedSessions } from "./terminal.js";
+import { getActiveiTermSession, attachToSession, closeAttachedSessions, hasAttachedPane } from "./terminal.js";
 import { trackCompletion, registerSilence, clearSilenceForWindow, sendCommand, createWindowWithCommand, startCommandInFirstWindow, stopAll } from "./signals.js";
 import { buildParams, buildDescription, buildPromptSnippet, buildPromptGuidelines } from "./tool-builder.js";
 import { registerTmuxCommand, initCommandSettings } from "./command.js";
@@ -132,9 +132,9 @@ export default function (pi: ExtensionAPI) {
 					// Wire silence detection if requested
 					if (silence) registerSilence(session, windowIndex, silence);
 
-					// Auto-attach
+					// Auto-attach (skip if already attached)
 					let attachNote = "";
-					if (flags.canAttach) {
+					if (flags.canAttach && !hasAttachedPane(session)) {
 						const autoFires =
 							currentSettings.autoAttach === "always" ||
 							(currentSettings.autoAttach === "session-create" && !alive);
