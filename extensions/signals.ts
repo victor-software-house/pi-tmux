@@ -9,7 +9,7 @@
  * Zero wrapper scripts. Zero temp files. Zero terminal pollution.
  */
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import type { SilenceConfig } from "./types.js";
+import type { CompletionDelivery, SilenceConfig } from "./types.js";
 import { run, tryRun, listWindows, captureOutput, tmuxEscape } from "./session.js";
 
 const IDLE_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", "csh"]);
@@ -44,10 +44,15 @@ function filterPaneOutput(raw: string, maxLines = 20): string {
 /**
  * Start polling a window for command completion.
  * Non-blocking — returns immediately. The interval fires every POLL_INTERVAL_MS
- * on the Node event loop and dispatches a follow-up message when the
- * foreground process transitions back to an idle shell.
+ * on the Node event loop and dispatches a message when the foreground process
+ * transitions back to an idle shell.
+ *
+ * @param deliverAs Controls when the notification reaches the agent:
+ *   - "steer": interrupts the current turn immediately
+ *   - "followUp": waits for the current turn to finish, then triggers a new turn
+ *   - "nextTurn": queues silently until the next user message
  */
-export function trackCompletion(pi: ExtensionAPI, session: string, windowIndex: number): void {
+export function trackCompletion(pi: ExtensionAPI, session: string, windowIndex: number, deliverAs: CompletionDelivery = "followUp"): void {
 	const key = trackerKey(session, windowIndex);
 
 	// Cancel any existing tracker for this window (new command supersedes)
@@ -97,13 +102,14 @@ export function trackCompletion(pi: ExtensionAPI, session: string, windowIndex: 
 		const output = captureOutput(session, windowIndex);
 		const trimmed = filterPaneOutput(output);
 
+		const triggerTurn = deliverAs !== "nextTurn";
 		pi.sendMessage(
 			{
 				customType: "tmux-completion",
 				content: `tmux "${windowTitle}" (:${windowIndex}) finished.\n\n\`\`\`\n${trimmed}\n\`\`\``,
 				display: true,
 			},
-			{ triggerTurn: true, deliverAs: "followUp" },
+			{ triggerTurn, deliverAs },
 		);
 	}, POLL_INTERVAL_MS);
 

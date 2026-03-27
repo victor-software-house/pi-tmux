@@ -12,7 +12,7 @@
  * /tmux hsplit    Attach as horizontal split
  */
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import type { AutoAttachMode, AttachLayout, AutoFocus, TmuxSettings, WindowReuse } from "./types.js";
+import type { AutoAttachMode, AttachLayout, AutoFocus, CompletionDelivery, TmuxSettings, WindowReuse } from "./types.js";
 import {
 	saveSettings,
 	getConfigPath,
@@ -20,6 +20,7 @@ import {
 	LAYOUT_VALUES,
 	WINDOW_REUSE_VALUES,
 	AUTO_FOCUS_VALUES,
+	COMPLETION_DELIVERY_VALUES,
 	MAX_WINDOWS_RANGE,
 } from "./settings.js";
 import { tryRun, resolveProjectRoot, deriveSessionName, isSessionAlive, listWindows, captureOutput } from "./session.js";
@@ -176,6 +177,8 @@ function applySettingChange(id: string, newValue: string): void {
 		currentSettings.windowReuse = newValue;
 	} else if (id === "autoFocus" && isAutoFocus(newValue)) {
 		currentSettings.autoFocus = newValue;
+	} else if (id === "completionDelivery" && isCompletionDelivery(newValue)) {
+		currentSettings.completionDelivery = newValue;
 	}
 }
 
@@ -193,6 +196,10 @@ function isWindowReuse(value: string): value is WindowReuse {
 
 function isAutoFocus(value: string): value is AutoFocus {
 	return AUTO_FOCUS_VALUES.includes(value as AutoFocus);
+}
+
+function isCompletionDelivery(value: string): value is CompletionDelivery {
+	return COMPLETION_DELIVERY_VALUES.includes(value as CompletionDelivery);
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +254,16 @@ function autoFocusDescription(): string {
 	return AUTO_FOCUS_DESCRIPTIONS[currentSettings.autoFocus] ?? "";
 }
 
+const COMPLETION_DELIVERY_DESCRIPTIONS: Record<string, string> = {
+	steer: "Interrupts the agent mid-turn with completion output (fastest)",
+	followUp: "Waits for the current turn to finish, then triggers a new turn",
+	nextTurn: "Queues silently until the next user message",
+};
+
+function completionDeliveryDescription(): string {
+	return COMPLETION_DELIVERY_DESCRIPTIONS[currentSettings.completionDelivery] ?? "";
+}
+
 function windowReuseDescription(): string {
 	return WINDOW_REUSE_DESCRIPTIONS[currentSettings.windowReuse] ?? "";
 }
@@ -276,6 +293,9 @@ function refreshDescriptions(items: MutableItem[]): void {
 				break;
 			case "autoFocus":
 				item.description = autoFocusDescription();
+				break;
+			case "completionDelivery":
+				item.description = completionDeliveryDescription();
 				break;
 		}
 	}
@@ -324,6 +344,13 @@ function buildSettingItems(maxValues: string[]): MutableItem[] & { id: string; l
 			description: autoFocusDescription(),
 			currentValue: currentSettings.autoFocus,
 			values: [...AUTO_FOCUS_VALUES],
+		},
+		{
+			id: "completionDelivery",
+			label: "Completion notification delivery",
+			description: completionDeliveryDescription(),
+			currentValue: currentSettings.completionDelivery,
+			values: [...COMPLETION_DELIVERY_VALUES],
 		},
 	];
 }

@@ -1,12 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { AutoAttachMode, AttachLayout, AutoFocus, FeatureFlags, TmuxSettings, WindowReuse } from "./types.js";
+import type { AutoAttachMode, AttachLayout, AutoFocus, CompletionDelivery, FeatureFlags, TmuxSettings, WindowReuse } from "./types.js";
 
 export const AUTO_ATTACH_VALUES: readonly AutoAttachMode[] = ["never", "session-create", "always"];
 export const LAYOUT_VALUES: readonly AttachLayout[] = ["split-vertical", "tab", "split-horizontal"];
 export const WINDOW_REUSE_VALUES: readonly WindowReuse[] = ["last", "named", "never"];
 export const AUTO_FOCUS_VALUES: readonly AutoFocus[] = ["always", "never"];
+export const COMPLETION_DELIVERY_VALUES: readonly CompletionDelivery[] = ["steer", "followUp", "nextTurn"];
 export const MAX_WINDOWS_RANGE = { min: 1, max: 50 } as const;
 
 const DEFAULT_SETTINGS: TmuxSettings = {
@@ -16,6 +17,7 @@ const DEFAULT_SETTINGS: TmuxSettings = {
 	maxWindows: 10,
 	windowReuse: "last",
 	autoFocus: "always",
+	completionDelivery: "followUp",
 };
 
 const SETTINGS_PATH = join(homedir(), ".pi", "agent", ".pi-tmux.json");
@@ -36,6 +38,7 @@ export function parseSettings(raw: unknown): TmuxSettings {
 				: DEFAULT_SETTINGS.maxWindows,
 		windowReuse: WINDOW_REUSE_VALUES.includes(r?.windowReuse as WindowReuse) ? (r.windowReuse as WindowReuse) : DEFAULT_SETTINGS.windowReuse,
 		autoFocus: AUTO_FOCUS_VALUES.includes(r?.autoFocus as AutoFocus) ? (r.autoFocus as AutoFocus) : DEFAULT_SETTINGS.autoFocus,
+		completionDelivery: COMPLETION_DELIVERY_VALUES.includes(r?.completionDelivery as CompletionDelivery) ? (r.completionDelivery as CompletionDelivery) : DEFAULT_SETTINGS.completionDelivery,
 	};
 }
 
