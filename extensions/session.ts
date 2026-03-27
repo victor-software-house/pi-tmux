@@ -35,7 +35,11 @@ export function resolveProjectRoot(cwd: string): string {
 /** Derive a deterministic, human-readable tmux session name from a directory path. */
 export function deriveSessionName(projectRoot: string): string {
 	const dirName = projectRoot.split("/").pop() || "pi";
-	const short = dirName.slice(0, 16).toLowerCase();
+	// tmux silently renames sessions starting with '.' to '_', then all
+	// subsequent send-keys/has-session calls using the original name fail.
+	// Strip leading dots to keep the name stable.
+	const sanitized = dirName.replace(/^\.+/, "") || "pi";
+	const short = sanitized.slice(0, 16).toLowerCase();
 	const fingerprint = createHash("md5").update(projectRoot).digest("hex").slice(0, 8);
 	return `${short}-${fingerprint}`;
 }

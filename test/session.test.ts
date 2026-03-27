@@ -34,6 +34,17 @@ describe("deriveSessionName()", () => {
 		const name = deriveSessionName("/");
 		expect(name).toMatch(/^[a-z0-9-]+-[a-f0-9]{8}$/);
 	});
+
+	test("strips leading dots from directory names (tmux renames .foo to _foo)", () => {
+		const name = deriveSessionName("/Users/victor/.pi");
+		expect(name).not.toMatch(/^\./);
+		expect(name.startsWith("pi-")).toBe(true);
+	});
+
+	test("strips multiple leading dots", () => {
+		const name = deriveSessionName("/home/user/..hidden");
+		expect(name).not.toMatch(/^\./);
+	});
 });
 
 describe("tmuxEscape()", () => {
