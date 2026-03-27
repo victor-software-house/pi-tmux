@@ -16,10 +16,6 @@ const DEFAULT_SETTINGS: TmuxSettings = {
 
 const SETTINGS_PATH = join(homedir(), ".pi", "agent", ".pi-tmux.json");
 
-export function getConfigPath(): string {
-	return SETTINGS_PATH;
-}
-
 export function loadSettings(): TmuxSettings {
 	try {
 		if (!existsSync(SETTINGS_PATH)) return { ...DEFAULT_SETTINGS };
@@ -42,10 +38,6 @@ export function saveSettings(settings: TmuxSettings): void {
 	const dir = join(homedir(), ".pi", "agent");
 	mkdirSync(dir, { recursive: true });
 	writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2) + "\n");
-}
-
-export function resetSettings(): void {
-	saveSettings({ ...DEFAULT_SETTINGS });
 }
 
 export function getFlags(settings: TmuxSettings): FeatureFlags {

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getFlags, when, getConfigPath, AUTO_ATTACH_VALUES, LAYOUT_VALUES } from "../extensions/settings.js";
+import { getFlags, when, AUTO_ATTACH_VALUES, LAYOUT_VALUES } from "../extensions/settings.js";
 
 describe("when() helper", () => {
 	test("returns items when condition is true", () => {
@@ -54,14 +54,4 @@ describe("AUTO_ATTACH_VALUES and LAYOUT_VALUES", () => {
 	});
 });
 
-describe("getConfigPath()", () => {
-	test("returns a path ending in .pi-tmux.json", () => {
-		const path = getConfigPath();
-		expect(path).toMatch(/\.pi-tmux\.json$/);
-	});
 
-	test("is under the pi agent directory", () => {
-		const path = getConfigPath();
-		expect(path).toContain(".pi/agent/");
-	});
-});
