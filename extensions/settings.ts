@@ -16,6 +16,10 @@ const DEFAULT_SETTINGS: TmuxSettings = {
 
 const SETTINGS_PATH = join(homedir(), ".pi", "agent", ".pi-tmux.json");
 
+export function getConfigPath(): string {
+	return SETTINGS_PATH;
+}
+
 export function loadSettings(): TmuxSettings {
 	try {
 		if (!existsSync(SETTINGS_PATH)) return { ...DEFAULT_SETTINGS };

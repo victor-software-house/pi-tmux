@@ -15,6 +15,7 @@ import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-cod
 import type { AutoAttachMode, AttachLayout, TmuxSettings } from "./types.js";
 import {
 	saveSettings,
+	getConfigPath,
 	AUTO_ATTACH_VALUES,
 	LAYOUT_VALUES,
 	MAX_WINDOWS_RANGE,
@@ -99,73 +100,64 @@ async function openSettingsPanel(ctx: ExtensionCommandContext): Promise<void> {
 
 	let changed = false;
 
-	await ctx.ui.custom((_tui, theme, _kb, done) => {
-		const maxValues = Array.from({ length: 10 }, (_, i) => String((i + 1) * 5));
-		const currentMax = String(currentSettings.maxWindows);
-		if (!maxValues.includes(currentMax)) {
-			maxValues.push(currentMax);
-			maxValues.sort((a, b) => Number(a) - Number(b));
-		}
+	await ctx.ui.custom(
+		(tui, theme, _kb, done) => {
+			const maxValues = Array.from({ length: 10 }, (_, i) => String((i + 1) * 5));
+			const currentMax = String(currentSettings.maxWindows);
+			if (!maxValues.includes(currentMax)) {
+				maxValues.push(currentMax);
+				maxValues.sort((a, b) => Number(a) - Number(b));
+			}
 
-		const items = [
-			{
-				id: "autoAttach",
-				label: "Auto-attach on run",
-				description: autoAttachTip(currentSettings.autoAttach),
-				currentValue: currentSettings.autoAttach,
-				values: [...AUTO_ATTACH_VALUES],
-			},
-			{
-				id: "defaultLayout",
-				label: "Default attach layout",
-				description: layoutTip(currentSettings.defaultLayout),
-				currentValue: currentSettings.defaultLayout,
-				values: [...LAYOUT_VALUES],
-			},
-			{
-				id: "allowMute",
-				label: "Allow model to mute silence alerts",
-				description: muteTip(currentSettings.allowMute),
-				currentValue: currentSettings.allowMute ? "on" : "off",
-				values: ["on", "off"],
-			},
-			{
-				id: "maxWindows",
-				label: "Max windows per session",
-				description: `Model can open up to ${currentSettings.maxWindows} tmux windows`,
-				currentValue: currentMax,
-				values: maxValues,
-			},
-		];
+			const items = buildSettingItems(maxValues);
 
-		const container = new Container();
-		container.addChild(new TuiText(theme.fg("accent", theme.bold("tmux settings")), 1, 0));
-		container.addChild(
-			new TuiText(theme.fg("dim", "Settings that affect tool capabilities require a reload to apply."), 1, 0),
-		);
+			const container = new Container();
+			container.addChild(new TuiText(theme.fg("accent", theme.bold("tmux settings")), 1, 0));
+			container.addChild(new TuiText(theme.fg("dim", getConfigPath()), 1, 0));
 
-		const settingsList = new SettingsList(
-			items,
-			Math.min(items.length + 2, 15),
-			getSettingsListTheme(),
-			(id, newValue) => {
-				changed = true;
-				applySettingChange(id, newValue);
-				saveSettings(currentSettings);
-				updateDescription(items, id, newValue);
+			const settingsList = new SettingsList(
+				items,
+				12,
+				getSettingsListTheme(),
+				(id, newValue) => {
+					changed = true;
+					applySettingChange(id, newValue);
+					saveSettings(currentSettings);
+					refreshDescriptions(items);
+					tui.requestRender();
+				},
+				() => done(undefined),
+				{ enableSearch: true },
+			);
+
+			container.addChild(settingsList);
+			container.addChild(
+				new TuiText(
+					theme.fg("dim", "Esc: close | Arrow keys: navigate | Space: toggle | Reload to apply"),
+					1,
+					0,
+				),
+			);
+
+			return {
+				render: (width: number) => container.render(width),
+				invalidate: () => container.invalidate(),
+				handleInput: (data: string) => {
+					settingsList.handleInput?.(data);
+					tui.requestRender();
+				},
+			};
+		},
+		{
+			overlay: true,
+			overlayOptions: {
+				anchor: "center",
+				width: 80,
+				maxHeight: "85%",
+				margin: 1,
 			},
-			() => done(undefined),
-			{ enableSearch: true },
-		);
-
-		container.addChild(settingsList);
-
-		return {
-			render: (width: number) => container.render(width),
-			invalidate: () => container.invalidate(),
-			handleInput: (data: string) => settingsList.handleInput?.(data),
-		};
-	});
+		},
+	);
 
 	if (changed) {
 		const reload = await ctx.ui.confirm("Reload Required", "Settings changed. Reload pi to update tool capabilities?");
@@ -201,33 +193,40 @@ function isAttachLayout(value: string): value is AttachLayout {
 }
 
 // ---------------------------------------------------------------------------
-// Dynamic description tips per selected value
+// Dynamic descriptions — lookup tables keyed by current value
 // ---------------------------------------------------------------------------
 
-const AUTO_ATTACH_TIPS: Record<AutoAttachMode, string> = {
+const AUTO_ATTACH_DESCRIPTIONS: Record<string, string> = {
 	never: "Attach action and params removed from the tool schema entirely",
 	"session-create": "Only the first run that creates a session auto-attaches",
 	always: "Every run with attach: true opens a visible pane",
 };
 
-const LAYOUT_TIPS: Record<AttachLayout, string> = {
+const LAYOUT_DESCRIPTIONS: Record<string, string> = {
 	"split-vertical": "Opens a vertical split alongside the current pane",
 	tab: "Opens a new terminal tab",
 	"split-horizontal": "Opens a horizontal split below the current pane",
 };
 
-function autoAttachTip(value: AutoAttachMode): string {
-	return AUTO_ATTACH_TIPS[value];
+const MUTE_DESCRIPTIONS: Record<string, string> = {
+	on: "Model can suppress silence notifications for long-running commands",
+	off: "Silence notifications cannot be suppressed by the model",
+};
+
+function autoAttachDescription(): string {
+	return AUTO_ATTACH_DESCRIPTIONS[currentSettings.autoAttach] ?? "";
 }
 
-function layoutTip(value: AttachLayout): string {
-	return LAYOUT_TIPS[value];
+function layoutDescription(): string {
+	return LAYOUT_DESCRIPTIONS[currentSettings.defaultLayout] ?? "";
 }
 
-function muteTip(on: boolean): string {
-	return on
-		? "Model can suppress silence notifications for long-running commands"
-		: "Silence notifications cannot be suppressed by the model";
+function muteDescription(): string {
+	return MUTE_DESCRIPTIONS[currentSettings.allowMute ? "on" : "off"] ?? "";
+}
+
+function maxWindowsDescription(): string {
+	return `Model can open up to ${String(currentSettings.maxWindows)} tmux windows`;
 }
 
 interface MutableItem {
@@ -235,19 +234,56 @@ interface MutableItem {
 	description?: string;
 }
 
-function updateDescription(items: MutableItem[], id: string, newValue: string): void {
-	const item = items.find((i) => i.id === id);
-	if (!item) return;
-
-	if (id === "autoAttach" && isAutoAttachMode(newValue)) {
-		item.description = autoAttachTip(newValue);
-	} else if (id === "defaultLayout" && isAttachLayout(newValue)) {
-		item.description = layoutTip(newValue);
-	} else if (id === "allowMute") {
-		item.description = muteTip(newValue === "on");
-	} else if (id === "maxWindows") {
-		item.description = `Model can open up to ${newValue} tmux windows`;
+function refreshDescriptions(items: MutableItem[]): void {
+	for (const item of items) {
+		switch (item.id) {
+			case "autoAttach":
+				item.description = autoAttachDescription();
+				break;
+			case "defaultLayout":
+				item.description = layoutDescription();
+				break;
+			case "allowMute":
+				item.description = muteDescription();
+				break;
+			case "maxWindows":
+				item.description = maxWindowsDescription();
+				break;
+		}
 	}
+}
+
+function buildSettingItems(maxValues: string[]): MutableItem[] & { id: string; label: string; currentValue: string; values: string[]; description: string }[] {
+	return [
+		{
+			id: "autoAttach",
+			label: "Auto-attach on run",
+			description: autoAttachDescription(),
+			currentValue: currentSettings.autoAttach,
+			values: [...AUTO_ATTACH_VALUES],
+		},
+		{
+			id: "defaultLayout",
+			label: "Default attach layout",
+			description: layoutDescription(),
+			currentValue: currentSettings.defaultLayout,
+			values: [...LAYOUT_VALUES],
+		},
+		{
+			id: "allowMute",
+			label: "Allow model to mute silence alerts",
+			description: muteDescription(),
+			currentValue: currentSettings.allowMute ? "on" : "off",
+			values: ["on", "off"],
+		},
+		{
+			id: "maxWindows",
+			label: "Max windows per session",
+			description: maxWindowsDescription(),
+			currentValue: String(currentSettings.maxWindows),
+			values: maxValues,
+		},
+	];
 }
 
 // ---------------------------------------------------------------------------
