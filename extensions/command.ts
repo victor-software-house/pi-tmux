@@ -14,7 +14,6 @@
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
 import type { AutoAttachMode, AttachLayout, TmuxSettings } from "./types.js";
 import {
-	loadSettings,
 	saveSettings,
 	AUTO_ATTACH_VALUES,
 	LAYOUT_VALUES,
