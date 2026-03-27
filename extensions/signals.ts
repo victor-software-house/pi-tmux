@@ -104,6 +104,19 @@ export function clearSilenceForWindow(session: string, windowIndex: number): boo
 // Notification dispatchers
 // ---------------------------------------------------------------------------
 
+/** Filter capture-pane output for notification display.
+ * Strips blank lines and the script-path line that tmux echoes when send-keys
+ * sends the wrapper script filename to the interactive shell.
+ */
+function filterPaneOutput(raw: string | null, maxLines = 20): string {
+	const scriptPathRe = /^\/tmp\/pi-tmux\/.+\.sh$/;
+	return (raw ?? "")
+		.split("\n")
+		.filter((l) => l.trim() && !scriptPathRe.test(l.trim()))
+		.slice(-maxLines)
+		.join("\n");
+}
+
 function dispatchCompletion(pi: ExtensionAPI, filepath: string, name: string): void {
 	const rawCode = readFileSync(filepath, "utf-8").trim();
 	unlinkSync(filepath);
@@ -123,11 +136,7 @@ function dispatchCompletion(pi: ExtensionAPI, filepath: string, name: string): v
 	const windowTitle = windows.find((w) => w.index === id.windowIndex)?.title ?? `window ${id.windowIndex}`;
 
 	const recentOutput = tryRun(`tmux capture-pane -t ${id.session}:${id.windowIndex} -p -S -30`);
-	const trimmed = (recentOutput ?? "")
-		.split("\n")
-		.filter((l) => l.trim())
-		.slice(-20)
-		.join("\n");
+	const trimmed = filterPaneOutput(recentOutput);
 
 	const exitCode = parseInt(rawCode, 10);
 	const outcome = exitCode === 0 ? "completed successfully" : `failed with exit code ${exitCode}`;
@@ -157,11 +166,7 @@ function dispatchSilenceAlert(pi: ExtensionAPI, filepath: string, name: string):
 	const windowTitle = windows.find((w) => w.index === id.windowIndex)?.title ?? `window ${id.windowIndex}`;
 
 	const recentOutput = tryRun(`tmux capture-pane -t ${id.session}:${id.windowIndex} -p -S -30`);
-	const trimmed = (recentOutput ?? "")
-		.split("\n")
-		.filter((l) => l.trim())
-		.slice(-20)
-		.join("\n");
+	const trimmed = filterPaneOutput(recentOutput);
 
 	pi.sendMessage(
 		{
@@ -245,7 +250,7 @@ export function executeWithSignal(dir: string, session: string, windowIndex: num
 
 	writeFileSync(
 		scriptFile,
-		`#!/usr/bin/env bash\nprintf '\\033[A\\033[2K'\n${command}\n_exit_code=$?\necho $_exit_code > "${completionFile}"\n`,
+		`#!/usr/bin/env bash\n${command}\n_exit_code=$?\necho $_exit_code > "${completionFile}"\n`,
 		{ mode: 0o755 },
 	);
 
