@@ -14,6 +14,7 @@ export interface TmuxSettings {
 	autoFocus: AutoFocus;
 	defaultShellMode: ShellMode;
 	completionDelivery: CompletionDelivery;
+	completionPollIntervalMs: number;
 	completionTriggerTurn: boolean;
 }
 

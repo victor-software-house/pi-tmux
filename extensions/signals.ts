@@ -13,7 +13,6 @@ import type { CompletionDelivery, SilenceConfig } from "./types.js";
 import { run, tryRun, listWindows, captureOutput, tmuxEscape, tmuxSessionTarget } from "./session.js";
 
 const IDLE_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", "csh"]);
-const POLL_INTERVAL_MS = 2000;
 
 // ---------------------------------------------------------------------------
 // Completion tracking
@@ -43,16 +42,23 @@ function filterPaneOutput(raw: string, maxLines = 20): string {
 
 /**
  * Start polling a window for command completion.
- * Non-blocking — returns immediately. The interval fires every POLL_INTERVAL_MS
- * on the Node event loop and dispatches a message when the foreground process
- * transitions back to an idle shell.
+ * Non-blocking — returns immediately. The interval fires on the Node event loop
+ * at the configured poll interval and dispatches a message when the foreground
+ * process transitions back to an idle shell.
  *
  * @param deliverAs Controls when the notification reaches the agent:
  *   - "steer": interrupts the current turn immediately
  *   - "followUp": waits for the current turn to finish, then triggers a new turn
  *   - "nextTurn": queues silently until the next user message
  */
-export function trackCompletion(pi: ExtensionAPI, session: string, windowIndex: number, deliverAs: CompletionDelivery = "followUp", triggerTurn = true): void {
+export function trackCompletion(
+	pi: ExtensionAPI,
+	session: string,
+	windowIndex: number,
+	deliverAs: CompletionDelivery = "followUp",
+	triggerTurn = true,
+	pollIntervalMs = 250,
+): void {
 	const key = trackerKey(session, windowIndex);
 
 	// Cancel any existing tracker for this window (new command supersedes)
@@ -110,7 +116,7 @@ export function trackCompletion(pi: ExtensionAPI, session: string, windowIndex: 
 			},
 			{ triggerTurn, deliverAs },
 		);
-	}, POLL_INTERVAL_MS);
+	}, pollIntervalMs);
 
 	completionTrackers.set(key, {
 		timer,
@@ -188,7 +194,7 @@ export function checkSilence(pi: ExtensionAPI, session: string, windowIndex: num
 	// Backoff
 	const nextInterval = Math.min(Math.round(tracker.currentInterval * tracker.factor), tracker.ceiling);
 	tracker.currentInterval = nextInterval;
-	tryRun(`tmux set-option -w -t ${session}:${windowIndex} monitor-silence ${nextInterval}`);
+	tryRun(`tmux set-option -w -t ${tmuxSessionTarget(session)}:${windowIndex} monitor-silence ${nextInterval}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -239,6 +245,7 @@ export function trackCompletionByPane(
 	label: string,
 	deliverAs: CompletionDelivery = "followUp",
 	triggerTurn = true,
+	pollIntervalMs = 250,
 ): void {
 	const key = `pane:${paneId}`;
 	const existing = completionTrackers.get(key);
@@ -274,7 +281,7 @@ export function trackCompletionByPane(
 			},
 			{ triggerTurn, deliverAs },
 		);
-	}, POLL_INTERVAL_MS);
+	}, pollIntervalMs);
 
 	completionTrackers.set(key, { timer, session, windowIndex: -1, initialCommand: currentCmd });
 }

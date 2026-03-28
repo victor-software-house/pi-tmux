@@ -42,6 +42,7 @@ const FULL_SETTINGS: TmuxSettings = {
 	autoFocus: "never",
 	defaultShellMode: "fresh",
 	completionDelivery: "followUp",
+	completionPollIntervalMs: 250,
 	completionTriggerTurn: true,
 };
 
@@ -96,6 +97,7 @@ describe("parseSettings()", () => {
 		expect(result.maxWindows).toBe(5);
 		expect(result.windowReuse).toBe("named");
 		expect(result.defaultShellMode).toBe("fresh");
+		expect(result.completionPollIntervalMs).toBe(250);
 	});
 
 	test("defaults autoAttach when value is invalid", () => {
@@ -145,18 +147,34 @@ describe("parseSettings()", () => {
 		expect(result.defaultShellMode).toBe("fresh");
 	});
 
+	test("defaults completion poll interval when missing", () => {
+		const { completionPollIntervalMs: _, ...without } = FULL_SETTINGS;
+		const result = parseSettings(without);
+		expect(result.completionPollIntervalMs).toBe(250);
+	});
+
+	test("accepts completion poll interval in range", () => {
+		const result = parseSettings({ ...FULL_SETTINGS, completionPollIntervalMs: 1500 });
+		expect(result.completionPollIntervalMs).toBe(1500);
+	});
+
+	test("defaults completion poll interval when value is out of range", () => {
+		const result = parseSettings({ ...FULL_SETTINGS, completionPollIntervalMs: 25 });
+		expect(result.completionPollIntervalMs).toBe(250);
+	});
+
 	test("accepts 'last' windowReuse", () => {
-		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "last", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionTriggerTurn: true });
+		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "last", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionPollIntervalMs: 250, completionTriggerTurn: true });
 		expect(result.windowReuse).toBe("last");
 	});
 
 	test("accepts 'named' windowReuse", () => {
-		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "named", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionTriggerTurn: true });
+		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "named", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionPollIntervalMs: 250, completionTriggerTurn: true });
 		expect(result.windowReuse).toBe("named");
 	});
 
 	test("accepts 'never' windowReuse", () => {
-		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "never", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionTriggerTurn: true });
+		const result = parseSettings({ ...FULL_SETTINGS, windowReuse: "never", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionPollIntervalMs: 250, completionTriggerTurn: true });
 		expect(result.windowReuse).toBe("never");
 	});
 
@@ -193,6 +211,7 @@ describe("loadSettings()", () => {
 		expect(settings.maxWindows).toBe(10);
 		expect(settings.windowReuse).toBe("last");
 		expect(settings.defaultShellMode).toBe("fresh");
+		expect(settings.completionPollIntervalMs).toBe(250);
 	});
 
 	test("round-trips all fields including windowReuse", () => {
@@ -205,6 +224,7 @@ describe("loadSettings()", () => {
 		expect(loaded.maxWindows).toBe(FULL_SETTINGS.maxWindows);
 		expect(loaded.windowReuse).toBe(FULL_SETTINGS.windowReuse);
 		expect(loaded.defaultShellMode).toBe(FULL_SETTINGS.defaultShellMode);
+		expect(loaded.completionPollIntervalMs).toBe(FULL_SETTINGS.completionPollIntervalMs);
 	});
 
 	test("falls back to default windowReuse when saved value is invalid", () => {
@@ -219,13 +239,13 @@ describe("loadSettings()", () => {
 
 	test("round-trips windowReuse: never", () => {
 		const path = tempSettingsPath();
-		saveSettings({ ...FULL_SETTINGS, windowReuse: "never", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionTriggerTurn: true }, path);
+		saveSettings({ ...FULL_SETTINGS, windowReuse: "never", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionPollIntervalMs: 250, completionTriggerTurn: true }, path);
 		expect(loadSettings(path).windowReuse).toBe("never");
 	});
 
 	test("round-trips windowReuse: last", () => {
 		const path = tempSettingsPath();
-		saveSettings({ ...FULL_SETTINGS, windowReuse: "last", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionTriggerTurn: true }, path);
+		saveSettings({ ...FULL_SETTINGS, windowReuse: "last", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionPollIntervalMs: 250, completionTriggerTurn: true }, path);
 		expect(loadSettings(path).windowReuse).toBe("last");
 	});
 
@@ -243,31 +263,31 @@ describe("loadSettings()", () => {
 
 describe("getFlags()", () => {
 	test("canAttach is false when autoAttach is 'never'", () => {
-		const flags = getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionTriggerTurn: true });
+		const flags = getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionPollIntervalMs: 250, completionTriggerTurn: true });
 		expect(flags.canAttach).toBe(false);
 		expect(flags.autoAttach).toBe("never");
 	});
 
 	test("canAttach is true when autoAttach is 'session-create'", () => {
-		const flags = getFlags({ autoAttach: "session-create", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionTriggerTurn: true });
+		const flags = getFlags({ autoAttach: "session-create", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionPollIntervalMs: 250, completionTriggerTurn: true });
 		expect(flags.canAttach).toBe(true);
 		expect(flags.autoAttach).toBe("session-create");
 	});
 
 	test("canAttach is true when autoAttach is 'always'", () => {
-		const flags = getFlags({ autoAttach: "always", defaultLayout: "tab", allowMute: false, maxWindows: 5, windowReuse: "last", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionTriggerTurn: true });
+		const flags = getFlags({ autoAttach: "always", defaultLayout: "tab", allowMute: false, maxWindows: 5, windowReuse: "last", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionPollIntervalMs: 250, completionTriggerTurn: true });
 		expect(flags.canAttach).toBe(true);
 		expect(flags.autoAttach).toBe("always");
 	});
 
 	test("canMute mirrors allowMute", () => {
-		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionTriggerTurn: true }).canMute).toBe(true);
-		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: false, maxWindows: 10, windowReuse: "last", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionTriggerTurn: true }).canMute).toBe(false);
+		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "last", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionPollIntervalMs: 250, completionTriggerTurn: true }).canMute).toBe(true);
+		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: false, maxWindows: 10, windowReuse: "last", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionPollIntervalMs: 250, completionTriggerTurn: true }).canMute).toBe(false);
 	});
 
 	test("windowReuse passes through to flags", () => {
-		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "named", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionTriggerTurn: true }).windowReuse).toBe("named");
-		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "never", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionTriggerTurn: true }).windowReuse).toBe("never");
+		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "named", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionPollIntervalMs: 250, completionTriggerTurn: true }).windowReuse).toBe("named");
+		expect(getFlags({ autoAttach: "never", defaultLayout: "split-vertical", allowMute: true, maxWindows: 10, windowReuse: "never", autoFocus: "always", defaultShellMode: "fresh", completionDelivery: "followUp", completionPollIntervalMs: 250, completionTriggerTurn: true }).windowReuse).toBe("never");
 	});
 });
 

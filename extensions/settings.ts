@@ -9,7 +9,9 @@ export const WINDOW_REUSE_VALUES: readonly WindowReuse[] = ["last", "named", "ne
 export const AUTO_FOCUS_VALUES: readonly AutoFocus[] = ["always", "never"];
 export const COMPLETION_DELIVERY_VALUES: readonly CompletionDelivery[] = ["steer", "followUp", "nextTurn"];
 export const SHELL_MODE_VALUES: readonly ShellMode[] = ["fresh", "resume"];
+export const COMPLETION_POLL_INTERVAL_VALUES = [50, 150, 250, 500, 750, 1000, 1500, 2000, 3000, 5000] as const;
 export const MAX_WINDOWS_RANGE = { min: 1, max: 50 } as const;
+export const COMPLETION_POLL_INTERVAL_RANGE = { min: 50, max: 5000 } as const;
 
 const DEFAULT_SETTINGS: TmuxSettings = {
 	autoAttach: "session-create",
@@ -20,6 +22,7 @@ const DEFAULT_SETTINGS: TmuxSettings = {
 	autoFocus: "always",
 	defaultShellMode: "fresh",
 	completionDelivery: "followUp",
+	completionPollIntervalMs: 250,
 	completionTriggerTurn: true,
 };
 
@@ -43,6 +46,10 @@ export function parseSettings(raw: unknown): TmuxSettings {
 		autoFocus: AUTO_FOCUS_VALUES.includes(r?.autoFocus as AutoFocus) ? (r.autoFocus as AutoFocus) : DEFAULT_SETTINGS.autoFocus,
 		defaultShellMode: SHELL_MODE_VALUES.includes(r?.defaultShellMode as ShellMode) ? (r.defaultShellMode as ShellMode) : DEFAULT_SETTINGS.defaultShellMode,
 		completionDelivery: COMPLETION_DELIVERY_VALUES.includes(r?.completionDelivery as CompletionDelivery) ? (r.completionDelivery as CompletionDelivery) : DEFAULT_SETTINGS.completionDelivery,
+		completionPollIntervalMs:
+			typeof r?.completionPollIntervalMs === "number" && r.completionPollIntervalMs >= COMPLETION_POLL_INTERVAL_RANGE.min && r.completionPollIntervalMs <= COMPLETION_POLL_INTERVAL_RANGE.max
+				? Math.floor(r.completionPollIntervalMs)
+				: DEFAULT_SETTINGS.completionPollIntervalMs,
 		completionTriggerTurn: typeof r?.completionTriggerTurn === "boolean" ? r.completionTriggerTurn : DEFAULT_SETTINGS.completionTriggerTurn,
 	};
 }

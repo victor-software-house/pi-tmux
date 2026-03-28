@@ -95,10 +95,25 @@ export default function (pi: ExtensionAPI) {
 
 					if (paneId) {
 						// Tmux mode: track by pane ID (works even when pane swaps between sessions)
-						trackCompletionByPane(pi, session, paneId as string, windowName as string, currentSettings.completionDelivery, currentSettings.completionTriggerTurn);
+						trackCompletionByPane(
+							pi,
+							session,
+							paneId as string,
+							windowName as string,
+							currentSettings.completionDelivery,
+							currentSettings.completionTriggerTurn,
+							currentSettings.completionPollIntervalMs,
+						);
 					} else {
 						const winIdx = windowIndex as number;
-						trackCompletion(pi, session, winIdx, currentSettings.completionDelivery, currentSettings.completionTriggerTurn);
+						trackCompletion(
+							pi,
+							session,
+							winIdx,
+							currentSettings.completionDelivery,
+							currentSettings.completionTriggerTurn,
+							currentSettings.completionPollIntervalMs,
+						);
 					}
 
 							const timeout = params.silenceTimeout ?? 0;

@@ -22,7 +22,9 @@ import {
 	AUTO_FOCUS_VALUES,
 	COMPLETION_DELIVERY_VALUES,
 	SHELL_MODE_VALUES,
+	COMPLETION_POLL_INTERVAL_VALUES,
 	MAX_WINDOWS_RANGE,
+	COMPLETION_POLL_INTERVAL_RANGE,
 } from "./settings.js";
 import { resolveProjectRoot, deriveSessionName, listWindows, listManagedPanes } from "./session.js";
 import { actionAttach, actionList, actionClear, actionKill, actionPeek, type ActionResult } from "./actions.js";
@@ -217,6 +219,11 @@ function applySettingChange(id: string, newValue: string): void {
 		currentSettings.defaultShellMode = newValue;
 	} else if (id === "completionDelivery" && isCompletionDelivery(newValue)) {
 		currentSettings.completionDelivery = newValue;
+	} else if (id === "completionPollIntervalMs") {
+		const n = parseInt(newValue, 10);
+		if (!Number.isNaN(n) && n >= COMPLETION_POLL_INTERVAL_RANGE.min && n <= COMPLETION_POLL_INTERVAL_RANGE.max) {
+			currentSettings.completionPollIntervalMs = n;
+		}
 	} else if (id === "completionTriggerTurn") {
 		currentSettings.completionTriggerTurn = newValue === "on";
 	}
@@ -317,6 +324,23 @@ function completionDeliveryDescription(): string {
 	return COMPLETION_DELIVERY_DESCRIPTIONS[currentSettings.completionDelivery] ?? "";
 }
 
+const COMPLETION_POLL_INTERVAL_DESCRIPTIONS: Record<string, string> = {
+	"50": "Fastest completion detection; highest tmux polling frequency",
+	"150": "Very fast completion detection with modest polling overhead",
+	"250": "Fast completion detection and a sensible default for interactive use",
+	"500": "Balanced completion detection with lighter polling",
+	"750": "Slightly delayed completion detection to reduce polling further",
+	"1000": "About one second of completion latency with low polling overhead",
+	"1500": "Noticeably delayed completion detection with lighter polling",
+	"2000": "Conservative completion polling; can feel slow for short commands",
+	"3000": "Very conservative completion polling for low-churn setups",
+	"5000": "Slowest completion detection; lowest polling frequency",
+};
+
+function completionPollIntervalDescription(): string {
+	return COMPLETION_POLL_INTERVAL_DESCRIPTIONS[String(currentSettings.completionPollIntervalMs)] ?? `${String(currentSettings.completionPollIntervalMs)}ms completion polling interval`;
+}
+
 const COMPLETION_TRIGGER_TURN_DESCRIPTIONS: Record<string, string> = {
 	on: "Wake the agent and start a new LLM turn when idle",
 	off: "Append to history silently; agent only sees it on next turn",
@@ -362,6 +386,9 @@ function refreshDescriptions(items: MutableItem[]): void {
 			case "completionDelivery":
 				item.description = completionDeliveryDescription();
 				break;
+			case "completionPollIntervalMs":
+				item.description = completionPollIntervalDescription();
+				break;
 			case "completionTriggerTurn":
 				item.description = completionTriggerTurnDescription();
 				break;
@@ -370,6 +397,13 @@ function refreshDescriptions(items: MutableItem[]): void {
 }
 
 function buildSettingItems(maxValues: string[]): MutableItem[] & { id: string; label: string; currentValue: string; values: string[]; description: string }[] {
+	const pollValues = [...COMPLETION_POLL_INTERVAL_VALUES.map(String)];
+	const currentPoll = String(currentSettings.completionPollIntervalMs);
+	if (!pollValues.includes(currentPoll)) {
+		pollValues.push(currentPoll);
+		pollValues.sort((a, b) => Number(a) - Number(b));
+	}
+
 	return [
 		{
 			id: "autoAttach",
@@ -426,6 +460,13 @@ function buildSettingItems(maxValues: string[]): MutableItem[] & { id: string; l
 			description: completionDeliveryDescription(),
 			currentValue: currentSettings.completionDelivery,
 			values: [...COMPLETION_DELIVERY_VALUES],
+		},
+		{
+			id: "completionPollIntervalMs",
+			label: "Completion poll interval",
+			description: completionPollIntervalDescription(),
+			currentValue: String(currentSettings.completionPollIntervalMs),
+			values: pollValues,
 		},
 		{
 			id: "completionTriggerTurn",
