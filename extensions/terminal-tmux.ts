@@ -22,23 +22,14 @@ export function closeAttachedSessions(_tmuxSession: string): void {
 }
 
 export function openTerminal(session: string, mode: AttachLayout, tmuxWindow?: number): string {
-	const piSession = getPiSession();
-	if (!piSession) return "Cannot determine current tmux session.";
-
-	const targetWindow = tmuxWindow ?? 0;
-
-	if (mode === "split-vertical" || mode === "split-horizontal") {
-		const flag = mode === "split-vertical" ? "-h" : "-v";
-		const result = tryRun(`tmux join-pane ${flag} -s ${session}:${targetWindow} -t ${piSession}`);
-		if (result === null) {
-			return `Failed to join pane from ${session}:${targetWindow}.`;
-		}
-		return `Opened ${mode.replace("split-", "")} split from ${session}:${targetWindow}.`;
+	// Commands run directly in pi's session — windows are native CC tabs.
+	// Auto-attach means focusing the target window (it's already visible).
+	if (tmuxWindow !== undefined) {
+		tryRun(`tmux select-window -t ${session}:${tmuxWindow}`);
+		return `Focused :${tmuxWindow} in ${session}.`;
 	}
 
-	const result = tryRun(`tmux link-window -s ${session}:${targetWindow} -t ${piSession}`);
-	if (result === null) {
-		return `Failed to link window from ${session}:${targetWindow}.`;
-	}
-	return `Linked ${session}:${targetWindow} as tab in ${piSession}.`;
+	// No specific window — focus the session's active window.
+	tryRun(`tmux select-window -t ${session}`);
+	return `Focused active window in ${session}.`;
 }

@@ -41,18 +41,7 @@ export function deriveSessionName(projectRoot: string): string {
 	const sanitized = dirName.replace(/^\.+/, "") || "pi";
 	const short = sanitized.slice(0, 16).toLowerCase();
 	const fingerprint = createHash("md5").update(projectRoot).digest("hex").slice(0, 8);
-	const base = `${short}-${fingerprint}`;
-
-	// When pi runs inside tmux, the tool needs its own session so commands
-	// can be joined/linked into pi's session via join-pane / link-window.
-	if (process.env.TMUX) {
-		const piSession = tryRun("tmux display-message -p '#{session_name}'")?.trim();
-		if (piSession === base) {
-			return `${base}-cmd`;
-		}
-	}
-
-	return base;
+	return `${short}-${fingerprint}`;
 }
 
 /** Check whether a tmux session with the given name is alive. */
