@@ -44,7 +44,8 @@ function trackPane(tmuxSession: string, itermId: string): void {
 	panes.add(itermId);
 }
 
-export function closeLegacyAttachedSessions(tmuxSession: string): void {
+export { closeLegacyAttachedSessions as closeAttachedSessions };
+function closeLegacyAttachedSessions(tmuxSession: string): void {
 	const panes = legacyAttachedPanes.get(tmuxSession);
 	if (!panes || !isIt2apiAvailable()) return;
 	for (const paneId of panes) {
@@ -54,12 +55,17 @@ export function closeLegacyAttachedSessions(tmuxSession: string): void {
 	legacyAttachedPanes.delete(tmuxSession);
 }
 
-export function hasLegacyAttachedPane(tmuxSession: string): boolean {
+export { hasLegacyAttachedPane as hasAttachedPane };
+function hasLegacyAttachedPane(tmuxSession: string): boolean {
 	const clients = tryRun(`tmux list-clients -t ${tmuxSession} -F "#{client_tty}" 2>/dev/null`);
 	return clients !== null && clients.trim().length > 0;
 }
 
-export function openLegacy(opts: AttachOptions, mode: AttachLayout): string {
+export function openTerminal(session: string, mode: AttachLayout, tmuxWindow?: number): string {
+	return openLegacy({ session, tmuxWindow }, mode);
+}
+
+function openLegacy(opts: AttachOptions, mode: AttachLayout): string {
 	const { session, tmuxWindow } = opts;
 	const term = process.env.TERM_PROGRAM ?? "";
 	const attachCmd = `tmux attach -t ${session}`;
