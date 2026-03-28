@@ -25,21 +25,27 @@ export function openTerminal(session: string, mode: AttachLayout, tmuxWindow?: n
 	const piSession = getPiSession();
 	if (!piSession) return "Cannot determine current tmux session.";
 
-	const srcWindow = tmuxWindow ?? 0;
+	const targetWindow = tmuxWindow ?? 0;
 
+	// Same session: windows are already visible as native CC tabs — just focus.
+	if (session === piSession) {
+		tryRun(`tmux select-window -t ${session}:${targetWindow}`);
+		return `Focused :${targetWindow} in ${session}.`;
+	}
+
+	// Different session: bring the tool window into pi's session.
 	if (mode === "split-vertical" || mode === "split-horizontal") {
 		const flag = mode === "split-vertical" ? "-h" : "-v";
-		const result = tryRun(`tmux join-pane ${flag} -s ${session}:${srcWindow} -t ${piSession}`);
+		const result = tryRun(`tmux join-pane ${flag} -s ${session}:${targetWindow} -t ${piSession}`);
 		if (result === null) {
-			return `Failed to join pane from ${session}:${srcWindow}.`;
+			return `Failed to join pane from ${session}:${targetWindow}.`;
 		}
-		return `Opened ${mode.replace("split-", "")} split from ${session}:${srcWindow}.`;
+		return `Opened ${mode.replace("split-", "")} split from ${session}:${targetWindow}.`;
 	}
 
-	// Tab: link the tool window into pi's session
-	const result = tryRun(`tmux link-window -s ${session}:${srcWindow} -t ${piSession}`);
+	const result = tryRun(`tmux link-window -s ${session}:${targetWindow} -t ${piSession}`);
 	if (result === null) {
-		return `Failed to link window from ${session}:${srcWindow}.`;
+		return `Failed to link window from ${session}:${targetWindow}.`;
 	}
-	return `Linked ${session}:${srcWindow} as tab in ${piSession}.`;
+	return `Linked ${session}:${targetWindow} as tab in ${piSession}.`;
 }
