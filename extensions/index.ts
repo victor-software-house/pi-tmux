@@ -1,18 +1,18 @@
 /**
  * pi-tmux — tmux session management per project.
  *
- * Tool: tmux (run/peek/list/kill + attach/focus/close/mute gated by settings)
- * Commands: /tmux (settings), /tmux show|cat|clear|kill|attach|tab|split|hsplit
+ * Tool: tmux (run/attach/focus/close/peek/list/kill/mute — gated by settings)
+ * Commands: /tmux (settings), /tmux list|cat|clear|kill|attach|tab|split|hsplit
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
-import type { AttachLayout, FeatureFlags, SilenceConfig } from "./types.js";
+import type { AttachLayout, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
-import { run, tryRun, resolveProjectRoot, deriveSessionName, deriveWindowName, isSessionAlive, isWindowIdle, listWindows, tmuxEscape } from "./session.js";
+import { tryRun, resolveProjectRoot, deriveSessionName, isSessionAlive } from "./session.js";
 import { getActiveiTermSession, hasAttachedPane } from "./terminal.js";
-import { trackCompletion, registerSilence, clearSilenceForWindow, sendCommand, createWindowWithCommand, startCommandInFirstWindow, stopAll } from "./signals.js";
-import { actionAttach, actionFocus, actionClose, actionPeek, actionList, actionKill } from "./actions.js";
+import { trackCompletion, registerSilence, stopAll } from "./signals.js";
+import { actionRun, actionAttach, actionFocus, actionClose, actionPeek, actionList, actionKill, actionMute } from "./actions.js";
 import { buildParams, buildDescription, buildPromptSnippet, buildPromptGuidelines } from "./tool-builder.js";
 import { registerTmuxCommand, initCommandSettings } from "./command.js";
 
@@ -62,7 +62,7 @@ export default function (pi: ExtensionAPI) {
 
 	registerTmuxCommand(pi, () => piSessionId);
 
-	const flags: FeatureFlags = getFlags(currentSettings);
+	const flags = getFlags(currentSettings);
 
 	pi.registerTool({
 		name: "tmux",
@@ -82,84 +82,51 @@ export default function (pi: ExtensionAPI) {
 						return toToolResult({ ok: false, message: "Error: 'command' is required." });
 					}
 
-					const windowName = params.name ? params.name.slice(0, 30) : deriveWindowName(params.command);
-					const alive = isSessionAlive(session);
-					const reuse = currentSettings.windowReuse;
+					const result = actionRun(session, {
+						command: params.command,
+						name: params.name,
+						cwd: params.cwd ?? root,
+						windowReuse: currentSettings.windowReuse,
+						maxWindows: currentSettings.maxWindows,
+						autoFocus: currentSettings.autoFocus,
+					});
+					if (!result.ok) return toToolResult(result);
+
+					const { windowIndex, created } = result.details as Record<string, unknown>;
+					const winIdx = windowIndex as number;
+
+					// Pi-specific side effects
+					trackCompletion(pi, session, winIdx, currentSettings.completionDelivery, currentSettings.completionTriggerTurn);
 
 					const timeout = params.silenceTimeout ?? 0;
-					const silence: SilenceConfig | undefined =
-						timeout > 0 ? { timeout, factor: params.silenceBackoffFactor ?? 1.5, cap: params.silenceBackoffCap ?? 300 } : undefined;
-					const windowCwd = params.cwd ?? root;
-
-					let windowIndex: number;
-					let reused = false;
-
-					if (!alive) {
-						run(`tmux new-session -d -s ${session} -c "${windowCwd}"`);
-						if (silence) run(`tmux set-option -t ${session} silence-action any`);
-						startCommandInFirstWindow(session, windowName, params.command);
-						windowIndex = 0;
-					} else {
-						const windows = listWindows(session);
-
-						let reuseCandidate: (typeof windows)[number] | undefined;
-						if (reuse !== "never") {
-							if (params.name) {
-								reuseCandidate = windows
-									.filter((w) => w.title === params.name && isWindowIdle(session, w.index))
-									.at(-1);
-							} else if (reuse === "last") {
-								reuseCandidate = [...windows].reverse().find((w) => isWindowIdle(session, w.index));
-							}
-						}
-
-						if (reuseCandidate) {
-							const idx = reuseCandidate.index;
-							tryRun(`tmux rename-window -t ${session}:${idx} "${tmuxEscape(windowName)}"`);
-							if (silence) tryRun(`tmux set-option -t ${session} silence-action any`);
-							sendCommand(session, idx, params.command);
-							windowIndex = idx;
-							reused = true;
-						} else {
-							if (windows.length >= currentSettings.maxWindows) {
-								return toToolResult({
-									ok: false,
-									message: `Error: ${windows.length} windows open (max: ${currentSettings.maxWindows}). Clear idle windows first (/tmux:clear).`,
-								});
-							}
-							if (silence) tryRun(`tmux set-option -t ${session} silence-action any`);
-							windowIndex = createWindowWithCommand(session, windowCwd, params.command, windowName);
-						}
+					if (timeout > 0) {
+						const silence: SilenceConfig = {
+							timeout,
+							factor: params.silenceBackoffFactor ?? 1.5,
+							cap: params.silenceBackoffCap ?? 300,
+						};
+						registerSilence(session, winIdx, silence);
 					}
 
-					// Non-blocking completion tracking
-					trackCompletion(pi, session, windowIndex, currentSettings.completionDelivery, currentSettings.completionTriggerTurn);
-
-					if (silence) registerSilence(session, windowIndex, silence);
-
-					// Auto-attach (skip if already attached)
-					let attachNote = "";
+					// Auto-attach (setting-driven, not per-call)
+					let message = result.message;
 					if (flags.canAttach && !hasAttachedPane(session)) {
 						const autoFires =
 							currentSettings.autoAttach === "always" ||
-							(currentSettings.autoAttach === "session-create" && !alive);
-						const shouldAttach = autoFires || params.attach === true;
-						if (shouldAttach) {
-							const layout = (params.mode as AttachLayout | undefined) ?? currentSettings.defaultLayout;
-							const result = actionAttach(session, ctx.cwd, { layout, window: windowIndex, piSessionId });
-							attachNote = "\n" + result.message;
+							(currentSettings.autoAttach === "session-create" && created === true);
+						if (autoFires) {
+							const attach = actionAttach(session, ctx.cwd, {
+								layout: currentSettings.defaultLayout,
+								window: winIdx,
+								piSessionId,
+							});
+							message += "\n" + attach.message;
 						}
 					}
 
-					// Auto-focus
-					if (currentSettings.autoFocus === "always" && isSessionAlive(session)) {
-						tryRun(`tmux select-window -t ${session}:${windowIndex}`);
-					}
-
-					const verb = !alive ? "Created" : reused ? "Reused" : "Added to";
 					return {
-						content: [{ type: "text", text: `${verb} session ${session}\n  :${windowIndex}  ${windowName}: ${params.command}${attachNote}` }],
-						details: { session, windowIndex, created: !alive, reused },
+						content: [{ type: "text", text: message }],
+						details: result.details ?? {},
 					};
 				}
 
@@ -168,12 +135,15 @@ export default function (pi: ExtensionAPI) {
 						return toToolResult({ ok: false, message: "Error: attach is disabled in settings. Use /tmux attach manually." });
 					}
 					const layout = (params.mode as AttachLayout | undefined) ?? currentSettings.defaultLayout;
-					const window = typeof params.window === "number" ? params.window : undefined;
-					return toToolResult(actionAttach(session, ctx.cwd, { layout, window, piSessionId }));
+					return toToolResult(actionAttach(session, ctx.cwd, { layout, window: params.window, piSessionId }));
 				}
 
-				case "focus":
-					return toToolResult(actionFocus(session, params.window ?? 0));
+				case "focus": {
+					if (params.window === undefined) {
+						return toToolResult({ ok: false, message: "Error: 'window' is required for focus." });
+					}
+					return toToolResult(actionFocus(session, params.window));
+				}
 
 				case "close": {
 					if (params.window === undefined) {
@@ -209,10 +179,7 @@ export default function (pi: ExtensionAPI) {
 					if (Number.isNaN(muteIdx)) {
 						return toToolResult({ ok: false, message: `Error: invalid window index '${params.window}'.` });
 					}
-					clearSilenceForWindow(session, muteIdx);
-					const windows = listWindows(session);
-					const mutedWindow = windows.find((w) => w.index === muteIdx);
-					return toToolResult({ ok: true, message: `Muted silence alerts for "${mutedWindow?.title ?? `window ${muteIdx}`}" (:${muteIdx}).` });
+					return toToolResult(actionMute(session, muteIdx));
 				}
 
 				default:

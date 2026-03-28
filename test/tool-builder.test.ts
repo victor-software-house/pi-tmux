@@ -64,34 +64,18 @@ describe("buildParams()", () => {
 		}
 	});
 
-	test("attach param present when canAttach", () => {
+	test("no attach boolean param in schema (auto-attach is setting-driven)", () => {
+		for (const flags of [ALL_ENABLED, ALL_DISABLED, AUTO_ALWAYS]) {
+			const props = buildParams(flags).properties as Record<string, unknown>;
+			expect(props.attach).toBeUndefined();
+		}
+	});
+
+	test("mode param always present for attach action", () => {
 		const schema = buildParams(ALL_ENABLED);
-		expect((schema.properties as Record<string, unknown>).attach).toBeDefined();
-	});
-
-	test("attach param present but describes disabled state when canAttach is false", () => {
-		const schema = buildParams(ALL_DISABLED);
 		const props = schema.properties as Record<string, { description?: string }>;
-		// Always in schema (avoids TypeBox union inference issue); description signals it's disabled
-		expect(props.attach).toBeDefined();
-		expect(props.attach?.description?.toLowerCase()).toContain("disabled");
-	});
-
-	test("attach param present even when autoAttach is always", () => {
-		const schema = buildParams(AUTO_ALWAYS);
-		expect((schema.properties as Record<string, unknown>).attach).toBeDefined();
-	});
-
-	test("attach description mentions auto when autoAttach is always", () => {
-		const schema = buildParams(AUTO_ALWAYS);
-		const props = schema.properties as Record<string, { description?: string }>;
-		expect(props.attach?.description?.toLowerCase()).toContain("auto");
-	});
-
-	test("attach description mentions session-create behaviour", () => {
-		const schema = buildParams(ALL_ENABLED); // session-create
-		const props = schema.properties as Record<string, { description?: string }>;
-		expect(props.attach?.description).toContain("reuse an existing session");
+		expect(props.mode).toBeDefined();
+		expect(props.mode?.description?.toLowerCase()).toContain("attach");
 	});
 
 	test("name param describes windowReuse: last semantics", () => {
@@ -144,9 +128,9 @@ describe("buildDescription()", () => {
 		expect(desc).not.toContain("attach: true");
 	});
 
-	test("includes attach: true hint for session-create", () => {
+	test("does not mention attach: true (auto-attach is setting-driven)", () => {
 		const desc = buildDescription(ALL_ENABLED);
-		expect(desc).toContain("attach: true");
+		expect(desc).not.toContain("attach: true");
 	});
 
 	test("includes mute when canMute", () => {
@@ -212,16 +196,17 @@ describe("buildPromptGuidelines()", () => {
 		}
 	});
 
-	test("attach guideline for session-create mentions attach: true", () => {
+	test("attach guideline for session-create describes auto behavior", () => {
 		const guidelines = buildPromptGuidelines(ALL_ENABLED);
-		expect(guidelines.some((g) => g.includes("attach: true"))).toBe(true);
+		expect(guidelines.some((g) => g.toLowerCase().includes("new session"))).toBe(true);
+		// No attach: true — auto-attach is setting-driven
+		expect(guidelines.some((g) => g.includes("attach: true"))).toBe(false);
 	});
 
-	test("attach guideline for always says no need to set attach: true", () => {
+	test("attach guideline for always describes auto behavior", () => {
 		const guidelines = buildPromptGuidelines(AUTO_ALWAYS);
-		const attachLine = guidelines.find((g) => g.toLowerCase().includes("auto"));
-		expect(attachLine).toBeDefined();
-		expect(attachLine).not.toContain("attach: true");
+		expect(guidelines.some((g) => g.toLowerCase().includes("every run"))).toBe(true);
+		expect(guidelines.some((g) => g.includes("attach: true"))).toBe(false);
 	});
 
 	test("no attach guideline when canAttach is false", () => {

@@ -13,34 +13,22 @@ export function buildActions(flags: FeatureFlags): string[] {
 }
 
 export function buildParams(flags: FeatureFlags) {
-	// Describe window reuse in the name param based on current policy
 	const nameDesc =
 		flags.windowReuse === "never"
-			? "Window name for 'run'. Every run creates a new window. Auto-named from command when omitted. E.g. 'dev-server', 'test-suite'."
+			? "Window name for 'run'. Every run creates a new window. Auto-named from command when omitted."
 			: flags.windowReuse === "named"
 				? "Window name for 'run'. Providing a name reuses an existing idle window with that name. Omit to create a new auto-named window."
-				: "Window name for 'run'. Omit to reuse the last idle window automatically. Provide a name to target a specific window by name. E.g. 'dev-server', 'test-suite'.";
-
-	// attach + mode: always in schema (Optional), description varies by mode
-	// When canAttach is false the action enum excludes 'attach' — the model
-	// won't use these params, but keeping them typed avoids a TypeBox union issue.
-	const attachDesc = !flags.canAttach
-		? "Attachment disabled in settings."
-		: flags.autoAttach === "always"
-			? "Terminal opens automatically — set true only to override the layout mode."
-			: flags.autoAttach === "session-create"
-				? "Set true to open a terminal on runs that reuse an existing session. New sessions auto-attach without this."
-				: "Set true to open a visible terminal pane for this run.";
+				: "Window name for 'run'. Omit to reuse the last idle window automatically. Provide a name to target a specific window by name.";
 
 	return Type.Object({
 		action: StringEnum(buildActions(flags) as [string, ...string[]]),
 
+		// run params
 		command: Type.Optional(Type.String({ description: "Command to run (for 'run' action)." })),
 		name: Type.Optional(Type.String({ description: nameDesc })),
 		cwd: Type.Optional(
 			Type.String({ description: "Working directory (for 'run' action). Defaults to project root." }),
 		),
-
 		silenceTimeout: Type.Optional(
 			Type.Number({ description: "Seconds of inactivity before a silence notification fires (for 'run'). 0 or omit to disable." }),
 		),
@@ -51,15 +39,16 @@ export function buildParams(flags: FeatureFlags) {
 			Type.Number({ description: "Max silence interval in seconds. Default 300." }),
 		),
 
+		// targeting param — focus, close, peek, mute, attach
 		window: Type.Optional(
 			Type.Union([Type.Number(), Type.String()], {
-				description: "Window index or name. Required for 'focus' and 'close'. Use 'all' for peek/mute. Defaults to 'all' for peek.",
+				description: "Window index or name. Required for 'focus', 'close', and 'mute'. Optional for 'peek' (defaults to 'all') and 'attach'.",
 			}),
 		),
 
-		attach: Type.Optional(Type.Boolean({ description: attachDesc })),
+		// attach param
 		mode: Type.Optional(
-			Type.String({ description: "Terminal layout: 'split-vertical' (default), 'tab', or 'split-horizontal'." }),
+			Type.String({ description: "Terminal layout for 'attach': 'split-vertical' (default), 'tab', or 'split-horizontal'." }),
 		),
 	});
 }
@@ -72,23 +61,14 @@ export function buildDescription(flags: FeatureFlags): string {
 				? "A terminal opens automatically when a new session is created."
 				: null;
 
-	const runDesc = [
-		"- run: Start a command in a tmux window. Completion and exit code are reported automatically.",
-		...(attachBehaviour ? [`  ${attachBehaviour}`] : []),
-		...when(
-			flags.canAttach && flags.autoAttach === "session-create",
-			"  Set 'attach: true' to also open a terminal on runs that reuse an existing session.",
-		),
-		...when(flags.canAttach, "- attach: Open a terminal view into the session. Supports window targeting via 'window' param."),
-	];
-
 	return [
 		"Manage a tmux session for the current project (one session per git root or working directory).",
 		"",
 		"WHEN TO USE: Use instead of bash for anything long-running or background — dev servers, watchers, builds, test suites. Use bash for quick commands (ls, grep, git status).",
 		"",
 		"Actions:",
-		...runDesc,
+		`- run: Start a command in a tmux window. Completion and exit code are reported automatically.${attachBehaviour ? `\n  ${attachBehaviour}` : ""}`,
+		...when(flags.canAttach, "- attach: Open a terminal view into the session. Supports window targeting via 'window' param."),
 		"- focus: Switch the attached terminal to a window by index or name without opening a new pane.",
 		"- close: Close a specific window by index or name. Use kill to close the entire session.",
 		"- peek: Read recent output from one or all windows.",
@@ -118,9 +98,9 @@ export function buildPromptGuidelines(flags: FeatureFlags): string[] {
 
 	const attachGuideline =
 		flags.autoAttach === "always"
-			? "A terminal opens automatically for every run. No need to set 'attach: true'."
+			? "A terminal opens automatically for every run."
 			: flags.autoAttach === "session-create"
-				? "A terminal opens automatically when a new session is created. Set 'attach: true' when the user wants to see output on subsequent runs."
+				? "A terminal opens automatically when a new session is created."
 				: null;
 
 	return [

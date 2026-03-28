@@ -5,9 +5,10 @@
  * and the command's handler() are thin wrappers that format results for their
  * respective interfaces.
  */
-import type { AttachLayout } from "./types.js";
-import { run, tryRun, isSessionAlive, listWindows, resolveWindow, captureOutput } from "./session.js";
+import type { AttachLayout, AutoFocus, WindowReuse } from "./types.js";
+import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape } from "./session.js";
 import { attachToSession, closeAttachedSessions, hasAttachedPane } from "./terminal.js";
+import { sendCommand, createWindowWithCommand, startCommandInFirstWindow, clearSilenceForWindow } from "./signals.js";
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -27,7 +28,74 @@ export interface ActionErr {
 export type ActionResult = ActionOk | ActionErr;
 
 // ---------------------------------------------------------------------------
-// Actions
+// run
+// ---------------------------------------------------------------------------
+
+export interface RunOpts {
+	command: string;
+	name?: string;
+	cwd: string;
+	windowReuse: WindowReuse;
+	maxWindows: number;
+	autoFocus: AutoFocus;
+}
+
+export function actionRun(session: string, opts: RunOpts): ActionResult {
+	const windowName = opts.name ? opts.name.slice(0, 30) : deriveWindowName(opts.command);
+	const alive = isSessionAlive(session);
+
+	let windowIndex: number;
+	let reused = false;
+
+	if (!alive) {
+		run(`tmux new-session -d -s ${session} -c "${opts.cwd}"`);
+		startCommandInFirstWindow(session, windowName, opts.command);
+		windowIndex = 0;
+	} else {
+		const windows = listWindows(session);
+
+		let reuseCandidate: (typeof windows)[number] | undefined;
+		if (opts.windowReuse !== "never") {
+			if (opts.name) {
+				reuseCandidate = windows
+					.filter((w) => w.title === opts.name && isWindowIdle(session, w.index))
+					.at(-1);
+			} else if (opts.windowReuse === "last") {
+				reuseCandidate = [...windows].reverse().find((w) => isWindowIdle(session, w.index));
+			}
+		}
+
+		if (reuseCandidate) {
+			const idx = reuseCandidate.index;
+			tryRun(`tmux rename-window -t ${session}:${idx} "${tmuxEscape(windowName)}"`);
+			sendCommand(session, idx, opts.command);
+			windowIndex = idx;
+			reused = true;
+		} else {
+			if (windows.length >= opts.maxWindows) {
+				return {
+					ok: false,
+					message: `Error: ${windows.length} windows open (max: ${opts.maxWindows}). Close idle windows first.`,
+				};
+			}
+			windowIndex = createWindowWithCommand(session, opts.cwd, opts.command, windowName);
+		}
+	}
+
+	if (opts.autoFocus === "always" && isSessionAlive(session)) {
+		tryRun(`tmux select-window -t ${session}:${windowIndex}`);
+	}
+
+	const verb = !alive ? "Created" : reused ? "Reused" : "Added to";
+	return {
+		ok: true,
+		message: `${verb} session ${session}\n  :${windowIndex}  ${windowName}: ${opts.command}`,
+		details: { session, windowIndex, windowName, created: !alive, reused },
+	};
+}
+
+// ---------------------------------------------------------------------------
+// attach — open terminal pane, or acknowledge if already attached
 // ---------------------------------------------------------------------------
 
 export function actionAttach(
@@ -39,7 +107,6 @@ export function actionAttach(
 
 	const targetIdx = opts.window !== undefined ? resolveWindow(session, opts.window) : undefined;
 
-	// Already attached — just focus the window
 	if (hasAttachedPane(session)) {
 		if (targetIdx !== undefined) {
 			tryRun(`tmux select-window -t ${session}:${targetIdx}`);
@@ -53,6 +120,10 @@ export function actionAttach(
 	return failed ? { ok: false, message: msg } : { ok: true, message: msg };
 }
 
+// ---------------------------------------------------------------------------
+// focus — switch tmux window
+// ---------------------------------------------------------------------------
+
 export function actionFocus(session: string, target: number | string): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 
@@ -62,6 +133,10 @@ export function actionFocus(session: string, target: number | string): ActionRes
 	tryRun(`tmux select-window -t ${session}:${idx}`);
 	return { ok: true, message: `Switched to :${idx}`, details: { session, window: idx } };
 }
+
+// ---------------------------------------------------------------------------
+// close — kill a single window
+// ---------------------------------------------------------------------------
 
 export function actionClose(session: string, target: number | string): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
@@ -75,12 +150,20 @@ export function actionClose(session: string, target: number | string): ActionRes
 	return { ok: true, message: msg, details: { session, window: idx, sessionEnded: remaining === 0 } };
 }
 
+// ---------------------------------------------------------------------------
+// peek — capture recent output
+// ---------------------------------------------------------------------------
+
 export function actionPeek(session: string, target: number | "all"): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 
 	const output = captureOutput(session, target);
 	return { ok: true, message: output, details: { session } };
 }
+
+// ---------------------------------------------------------------------------
+// list — show windows and status
+// ---------------------------------------------------------------------------
 
 export function actionList(session: string): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
@@ -92,6 +175,10 @@ export function actionList(session: string): ActionResult {
 	return { ok: true, message: `${header}\n${formatted.join("\n")}`, details: { session, windows, attached } };
 }
 
+// ---------------------------------------------------------------------------
+// kill — terminate session
+// ---------------------------------------------------------------------------
+
 export function actionKill(session: string): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 
@@ -99,6 +186,10 @@ export function actionKill(session: string): ActionResult {
 	run(`tmux kill-session -t ${session}`);
 	return { ok: true, message: `Killed session ${session}.` };
 }
+
+// ---------------------------------------------------------------------------
+// clear — kill idle windows
+// ---------------------------------------------------------------------------
 
 export function actionClear(session: string): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: "No active session." };
@@ -124,6 +215,19 @@ export function actionClear(session: string): ActionResult {
 	const alive = isSessionAlive(session);
 	const msg = alive
 		? `Cleared ${idle.length} idle window(s).`
-		: `Cleared ${idle.length} idle window(s) -- session closed.`;
+		: `Cleared ${idle.length} idle window(s) — session closed.`;
 	return { ok: true, message: msg };
+}
+
+// ---------------------------------------------------------------------------
+// mute — disable silence notifications for a window
+// ---------------------------------------------------------------------------
+
+export function actionMute(session: string, windowIndex: number): ActionResult {
+	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
+
+	clearSilenceForWindow(session, windowIndex);
+	const windows = listWindows(session);
+	const w = windows.find((win) => win.index === windowIndex);
+	return { ok: true, message: `Muted silence alerts for "${w?.title ?? `window ${windowIndex}`}" (:${windowIndex}).` };
 }
