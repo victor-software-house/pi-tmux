@@ -68,7 +68,7 @@ function mockDeadSession(): void {
 describe("actionRun()", () => {
 	beforeEach(() => execSyncMock.mockReset());
 
-	test("creates new session when none exists", () => {
+	test("creates new session when none exists", async () => {
 		let sessionCreated = false;
 		execSyncMock.mockImplementation((_cmd?: string) => {
 			const cmd = _cmd ?? "";
@@ -79,7 +79,7 @@ describe("actionRun()", () => {
 			return "\n";
 		});
 
-		const result = actionRun("test-abc", {
+		const result = await actionRun("test-abc", {
 			command: "npm start",
 			cwd: "/tmp/project",
 			windowReuse: "last",
@@ -94,15 +94,13 @@ describe("actionRun()", () => {
 		expect(result.ok && result.details?.created).toBe(true);
 	});
 
-	test("reuses idle window with windowReuse: last", () => {
+	test("reuses idle window with windowReuse: last", async () => {
 		let renamedWindow = false;
 		let sentKeys = false;
 		execSyncMock.mockImplementation((_cmd?: string) => {
 			const cmd = _cmd ?? "";
 			if (cmd.includes("has-session")) return "ok\n";
-			// isWindowIdle uses list-windows with pane_current_command format
-			if (cmd.includes("list-windows") && cmd.includes("pane_current_command"))
-				return "0\tzsh\t1234\n";
+			if (cmd.includes("list-windows") && cmd.includes("pane_current_command")) return "0\tzsh\t1234\n";
 			if (cmd.includes("list-windows")) return "0\tdev-server\t0\n";
 			if (cmd.includes("pgrep")) throw new Error("no children");
 			if (cmd.includes("rename-window")) { renamedWindow = true; return "\n"; }
@@ -110,7 +108,7 @@ describe("actionRun()", () => {
 			return "\n";
 		});
 
-		const result = actionRun("test-abc", {
+		const result = await actionRun("test-abc", {
 			command: "npm test",
 			cwd: "/tmp/project",
 			windowReuse: "last",
@@ -125,17 +123,16 @@ describe("actionRun()", () => {
 		expect(result.ok && result.details?.reused).toBe(true);
 	});
 
-	test("rejects when maxWindows reached", () => {
+	test("rejects when maxWindows reached", async () => {
 		execSyncMock.mockImplementation((_cmd?: string) => {
 			const cmd = _cmd ?? "";
 			if (cmd.includes("has-session")) return "ok\n";
 			if (cmd.includes("list-windows")) return "0\tdev\t0\n1\ttest\t0\n";
-			// Both windows busy
 			if (cmd.includes("pane_current_command")) return "node\n";
 			return "\n";
 		});
 
-		const result = actionRun("test-abc", {
+		const result = await actionRun("test-abc", {
 			command: "npm run build",
 			cwd: "/tmp/project",
 			windowReuse: "last",
@@ -147,7 +144,7 @@ describe("actionRun()", () => {
 		expect(result.message).toContain("2 windows open");
 	});
 
-	test("respects windowReuse: never", () => {
+	test("respects windowReuse: never", async () => {
 		let createdWindow = false;
 		execSyncMock.mockImplementation((_cmd?: string) => {
 			const cmd = _cmd ?? "";
@@ -160,7 +157,7 @@ describe("actionRun()", () => {
 			return "\n";
 		});
 
-		const result = actionRun("test-abc", {
+		const result = await actionRun("test-abc", {
 			command: "npm test",
 			cwd: "/tmp/project",
 			windowReuse: "never",
@@ -173,7 +170,7 @@ describe("actionRun()", () => {
 		expect(createdWindow).toBe(true);
 	});
 
-	test("uses custom name when provided", () => {
+	test("uses custom name when provided", async () => {
 		execSyncMock.mockImplementation((_cmd?: string) => {
 			const cmd = _cmd ?? "";
 			if (cmd.includes("has-session")) throw new Error("no session");
@@ -183,7 +180,7 @@ describe("actionRun()", () => {
 			return "\n";
 		});
 
-		const result = actionRun("test-abc", {
+		const result = await actionRun("test-abc", {
 			command: "npm start",
 			name: "my-server",
 			cwd: "/tmp/project",

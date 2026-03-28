@@ -6,7 +6,7 @@
  * respective interfaces.
  */
 import type { AttachLayout, AutoFocus, ShellMode, WindowReuse } from "./types.js";
-import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape, commandSession, ensureStagingSession, ensureViewPane, createStagingWindow, swapViewPane, respawnStagingWindow, deriveStagingName, listManagedPanes, markManagedPane, setManagedPaneTitle, getPaneId, resolveManagedPane, getPaneLocation } from "./session.js";
+import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape, commandSession, ensureStagingSession, ensureViewPane, createStagingWindow, swapViewPane, respawnStagingWindow, deriveStagingName, listManagedPanes, markManagedPane, setManagedPaneTitle, getPaneId, resolveManagedPane, getPaneLocation, waitForPaneQuiescence } from "./session.js";
 import { attachToSession, closeAttachedSessions, hasAttachedPane } from "./terminal.js";
 import { sendCommand, sendCommandToPane, createWindowWithCommand, startCommandInFirstWindow, clearSilenceForWindow, trackCompletionByPane } from "./signals.js";
 
@@ -43,7 +43,7 @@ export interface RunOpts {
 	target?: number | string;
 }
 
-export function actionRun(session: string, opts: RunOpts): ActionResult {
+export async function actionRun(session: string, opts: RunOpts): Promise<ActionResult> {
 	const windowName = opts.name ? opts.name.slice(0, 30) : deriveWindowName(opts.command);
 
 	// -------------------------------------------------------------------
@@ -123,6 +123,9 @@ export function actionRun(session: string, opts: RunOpts): ActionResult {
 		}
 		if (paneId) {
 			setManagedPaneTitle(paneId, windowName);
+			if (lifecycle === "fresh-respawned") {
+				await waitForPaneQuiescence(paneId);
+			}
 			sendCommandToPane(paneId, opts.command);
 		}
 

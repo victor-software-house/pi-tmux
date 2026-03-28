@@ -78,7 +78,7 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					const shellMode = (params.shellMode as ShellMode | undefined) ?? currentSettings.defaultShellMode;
-					const result = actionRun(session, {
+					const result = await actionRun(session, {
 						command: params.command,
 						name: params.name,
 						cwd: params.cwd ?? root,

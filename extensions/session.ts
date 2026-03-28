@@ -4,6 +4,7 @@
  */
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
+import { setTimeout as delay } from "node:timers/promises";
 import type { ManagedPaneInfo, WindowInfo } from "./types.js";
 
 /** Run a shell command synchronously, returning trimmed stdout. Throws on failure. */
@@ -295,6 +296,12 @@ function paneHasChildren(pid: string): boolean {
 	return Boolean(pid) && Boolean(tryRun(`pgrep -P ${pid}`));
 }
 
+interface PaneQuiescenceOptions {
+	pollMs?: number;
+	quietWindowMs?: number;
+	timeoutMs?: number;
+}
+
 function parseManagedPaneLine(line: string, ownerSession: string): ManagedPaneInfo | null {
 	const parts = line.split("\t");
 	const paneId = parts[0] ?? "";
@@ -321,6 +328,55 @@ function parseManagedPaneLine(line: string, ownerSession: string): ManagedPaneIn
 		currentCommand,
 		idle: isIdleShellCommand(currentCommand) && !paneHasChildren(panePid),
 	};
+}
+
+async function getPaneQuiescenceSignature(paneId: string): Promise<string | null> {
+	const raw = tryRun(`tmux display -p -t ${paneId} "#{pane_current_command}\t#{cursor_x}\t#{cursor_y}"`);
+	if (!raw) return null;
+	const parts = raw.split("\t");
+	const currentCommand = parts[0] ?? "";
+	const cursorX = Number.parseInt(parts[1] ?? "", 10);
+	const cursorY = Number.parseInt(parts[2] ?? "", 10);
+	if (!isIdleShellCommand(currentCommand) || Number.isNaN(cursorX) || Number.isNaN(cursorY) || (cursorX === 0 && cursorY === 0)) {
+		return null;
+	}
+
+	const captured = tryRun(`tmux capture-pane -t ${paneId} -p -S -5`) ?? "";
+	const tail = captured
+		.split("\n")
+		.map((line) => line.trimEnd())
+		.filter((line) => line.trim().length > 0)
+		.slice(-3)
+		.join("\n");
+	if (!tail) return null;
+	return `${currentCommand}\n${cursorX},${cursorY}\n${tail}`;
+}
+
+/** Wait for a reused pane shell to become visually quiescent after respawn. */
+export async function waitForPaneQuiescence(paneId: string, options: PaneQuiescenceOptions = {}): Promise<boolean> {
+	const pollMs = options.pollMs ?? 20;
+	const quietWindowMs = options.quietWindowMs ?? 140;
+	const timeoutMs = options.timeoutMs ?? 300;
+	const deadline = Date.now() + timeoutMs;
+	let lastSignature: string | null = null;
+	let stableSince = 0;
+
+	while (Date.now() < deadline) {
+		const signature = await getPaneQuiescenceSignature(paneId);
+		if (signature && signature === lastSignature) {
+			if (stableSince === 0) {
+				stableSince = Date.now();
+			} else if (Date.now() - stableSince >= quietWindowMs) {
+				return true;
+			}
+		} else {
+			lastSignature = signature;
+			stableSince = 0;
+		}
+		await delay(pollMs);
+	}
+
+	return false;
 }
 
 /** Escape a string for safe embedding inside a tmux send-keys double-quoted argument. */
