@@ -101,10 +101,11 @@ export default function (pi: ExtensionAPI) {
 				const { execSync: ex } = await import("child_process");
 				const sid = piSessionId;
 				const closeOld = sid
-					? `while ! it2api get-prompt ${sid} 2>/dev/null | grep -q working_directory; do :; done; it2api send-text ${sid} 'exit\n'; `
+					? `while ! it2api get-prompt ${sid} 2>/dev/null | grep -q working_directory; do :; done; it2api send-text ${sid} 'exit\\n'; `
 					: "";
+				const script = `${closeOld}tmux -CC attach -t ${q(tmuxSession)}`;
 				try {
-					ex(`it2api create-tab --command "${closeOld}tmux -CC attach -t ${q(tmuxSession)}"`, { stdio: "ignore" });
+					ex(`it2api create-tab --command "/bin/bash -l -c '${script.replace(/'/g, "'\\''")}'"`);
 				} catch {
 					// iTerm2 not available — user must attach manually
 				}
