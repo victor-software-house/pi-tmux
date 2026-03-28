@@ -6,7 +6,7 @@
  * respective interfaces.
  */
 import type { AttachLayout, AutoFocus, ShellMode, WindowReuse } from "./types.js";
-import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape, commandSession, ensureStagingSession, ensureViewPane, createStagingWindow, swapViewPane, respawnStagingWindow, deriveStagingName, listManagedPanes, markManagedPane, setManagedPaneTitle, getPaneId, resolveManagedPane, getPaneLocation, waitForPaneQuiescence } from "./session.js";
+import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape, commandSession, ensureStagingSession, ensureViewPane, createStagingWindow, swapViewPane, respawnStagingWindow, deriveStagingName, listManagedPanes, markManagedPane, setManagedPaneTitle, getPaneId, resolveManagedPane, getPaneLocation, waitForPaneQuiescence, tmuxSessionTarget } from "./session.js";
 import { attachToSession, closeAttachedSessions, hasAttachedPane } from "./terminal.js";
 import { sendCommand, sendCommandToPane, createWindowWithCommand, startCommandInFirstWindow, clearSilenceForWindow, trackCompletionByPane } from "./signals.js";
 
@@ -101,7 +101,7 @@ export async function actionRun(session: string, opts: RunOpts): Promise<ActionR
 				stagingIdx = candidate.windowIndex;
 				paneId = candidate.paneId;
 				respawnStagingWindow(staging, stagingIdx, opts.cwd);
-				tryRun(`tmux rename-window -t ${staging}:${stagingIdx} "${tmuxEscape(windowName)}"`);
+				tryRun(`tmux rename-window -t ${tmuxSessionTarget(staging)}:${stagingIdx} "${tmuxEscape(windowName)}"`);
 				setManagedPaneTitle(paneId, windowName);
 				lifecycle = "fresh-respawned";
 			}
@@ -123,9 +123,7 @@ export async function actionRun(session: string, opts: RunOpts): Promise<ActionR
 		}
 		if (paneId) {
 			setManagedPaneTitle(paneId, windowName);
-			if (lifecycle === "fresh-respawned") {
-				await waitForPaneQuiescence(paneId);
-			}
+			await waitForPaneQuiescence(paneId);
 			sendCommandToPane(paneId, opts.command);
 		}
 
@@ -171,7 +169,7 @@ export async function actionRun(session: string, opts: RunOpts): Promise<ActionR
 		}
 		sendCommand(session, idx, opts.command);
 		if (opts.autoFocus === "always") {
-			tryRun(`tmux select-window -t ${session}:${idx}`);
+			tryRun(`tmux select-window -t ${tmuxSessionTarget(session)}:${idx}`);
 		}
 		return {
 			ok: true,
@@ -219,7 +217,7 @@ export async function actionRun(session: string, opts: RunOpts): Promise<ActionR
 	// In tmux CC mode, select-window switches the iTerm tab away from pi.
 	// Focus is handled by the user clicking the tab or via /tmux focus.
 	if (opts.autoFocus === "always" && isSessionAlive(session) && !process.env.TMUX) {
-		tryRun(`tmux select-window -t ${session}:${windowIndex}`);
+		tryRun(`tmux select-window -t ${tmuxSessionTarget(session)}:${windowIndex}`);
 	}
 
 	const verb = !alive ? "Created" : reused ? "Reused" : "Added to";
@@ -253,7 +251,7 @@ export function actionAttach(
 
 	if (hasAttachedPane(session)) {
 		if (targetIdx !== undefined) {
-			tryRun(`tmux select-window -t ${session}:${targetIdx}`);
+			tryRun(`tmux select-window -t ${tmuxSessionTarget(session)}:${targetIdx}`);
 			return { ok: true, message: `Focused :${targetIdx} (already attached).` };
 		}
 		return { ok: true, message: "Already attached." };
@@ -287,7 +285,7 @@ export function actionFocus(session: string, target: number | string): ActionRes
 
 	const idx = resolveWindow(session, target);
 	if (idx === undefined) return { ok: false, message: `No window '${target}' in session ${session}.` };
-	tryRun(`tmux select-window -t ${session}:${idx}`);
+	tryRun(`tmux select-window -t ${tmuxSessionTarget(session)}:${idx}`);
 	return { ok: true, message: `Switched to :${idx}`, details: { session, window: idx } };
 }
 
@@ -310,7 +308,7 @@ export function actionClose(session: string, target: number | string): ActionRes
 
 	const idx = resolveWindow(session, target);
 	if (idx === undefined) return { ok: false, message: `No window '${target}' in session ${session}.` };
-	tryRun(`tmux kill-window -t ${session}:${idx}`);
+	tryRun(`tmux kill-window -t ${tmuxSessionTarget(session)}:${idx}`);
 	const remaining = isSessionAlive(session) ? listWindows(session).length : 0;
 	const msg = remaining > 0 ? `Closed :${idx}. ${remaining} window(s) remain.` : `Closed :${idx}. Session ended.`;
 	return { ok: true, message: msg, details: { session, window: idx, sessionEnded: remaining === 0 } };
@@ -377,13 +375,13 @@ export function actionKill(session: string): ActionResult {
 	if (process.env.TMUX) {
 		// Kill the staging session and the view pane
 		const staging = deriveStagingName(session);
-		tryRun(`tmux kill-session -t ${staging}`);
-		tryRun(`tmux kill-pane -t ${session}:0.1`);
+		tryRun(`tmux kill-session -t ${tmuxSessionTarget(staging)}`);
+		tryRun(`tmux kill-pane -t ${tmuxSessionTarget(session)}:0.1`);
 		return { ok: true, message: `Killed command session ${staging}.` };
 	}
 
 	closeAttachedSessions(session);
-	run(`tmux kill-session -t ${session}`);
+	run(`tmux kill-session -t ${tmuxSessionTarget(session)}`);
 	return { ok: true, message: `Killed session ${session}.` };
 }
 
@@ -418,12 +416,12 @@ export function actionClear(session: string): ActionResult {
 	if (idle.length === 0) return { ok: true, message: "No idle windows to clear." };
 
 	for (const w of idle) {
-		tryRun(`tmux kill-window -t ${cmdSession}:${w.index}`);
+		tryRun(`tmux kill-window -t ${tmuxSessionTarget(cmdSession)}:${w.index}`);
 	}
 
 	const remaining = listWindows(cmdSession).length;
 	if (process.env.TMUX && remaining === 0) {
-		tryRun(`tmux kill-pane -t ${session}:0.1`);
+		tryRun(`tmux kill-pane -t ${tmuxSessionTarget(session)}:0.1`);
 	}
 	return { ok: true, message: `Cleared ${idle.length} idle window(s).` };
 }

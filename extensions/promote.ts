@@ -4,7 +4,7 @@
  * Uses it2api for iTerm2 integration (create-tab, get-prompt, send-text).
  */
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { resolveProjectRoot, deriveSessionName } from "./session.js";
+import { resolveProjectRoot, deriveSessionName, tmuxSessionTarget } from "./session.js";
 export function registerPromoteCommand(pi: ExtensionAPI): void {
 	if (process.env.TMUX) return;
 
@@ -41,12 +41,12 @@ export function registerPromoteCommand(pi: ExtensionAPI): void {
 			const piCmd = args.map(q).join(" ");
 
 			const { tryRun: tr, run: r } = await import("./session.js");
-			tr(`tmux kill-session -t ${q(tmuxSession)} 2>/dev/null`);
+			tr(`tmux kill-session -t ${q(tmuxSessionTarget(tmuxSession))} 2>/dev/null`);
 			r(`tmux new-session -d -s ${q(tmuxSession)} -c ${q(root)} ${q(piCmd)}`);
 			// Mark pi's pane ID in the session environment for reliable identification
-			const piPaneId = tr(`tmux display-message -t ${q(tmuxSession)}:0 -p "#{pane_id}"`);
+			const piPaneId = tr(`tmux display-message -t ${q(tmuxSessionTarget(tmuxSession))}:0 -p "#{pane_id}"`);
 			if (piPaneId) {
-				tr(`tmux set-environment -t ${q(tmuxSession)} PI_PANE_ID ${piPaneId.trim()}`);
+				tr(`tmux set-environment -t ${q(tmuxSessionTarget(tmuxSession))} PI_PANE_ID ${piPaneId.trim()}`);
 			}
 
 			// Open new iTerm tab with CC attach, close old tab after pi exits
@@ -54,7 +54,7 @@ export function registerPromoteCommand(pi: ExtensionAPI): void {
 			const closeOld = piSessionId
 				? `while ! it2api get-prompt ${piSessionId} 2>/dev/null | grep -q working_directory; do :; done; it2api send-text ${piSessionId} 'exit\\n'; `
 				: "";
-			const script = `${closeOld}tmux -CC attach -t ${q(tmuxSession)}`;
+			const script = `${closeOld}tmux -CC attach -t ${q(tmuxSessionTarget(tmuxSession))}`;
 			try {
 				ex(`it2api create-tab --command "/bin/bash -l -c '${script.replace(/'/g, "'\\''")}'"`);
 			} catch {

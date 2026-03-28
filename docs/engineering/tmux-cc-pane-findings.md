@@ -257,6 +257,8 @@ Current working numbers from the discussion:
 
 The exact numbers may evolve, but the important current decision is that the wait must stay bounded and short.
 
+Follow-up validation also showed that the same quiescence issue can affect a brand-new pane, not only a `respawn-pane -k` reuse path. In practice, fresh-shell dispatch should also wait for the shell to settle before sending the command.
+
 The important portable rule is:
 
 - **wait for short-lived visual quiescence, not for a specific prompt glyph**
@@ -331,7 +333,37 @@ Switch to another one later:
 tmux swap-pane -d -s <cc-session>:0.1 -t <non-cc-session>:<other-window>.0
 ```
 
-If reusing a pane via `respawn-pane -k`, wait for shell readiness before sending the next command. A fixed sleep worked only as a crude probe; bounded quiescence polling produced cleaner results.
+If starting or reusing a fresh shell, wait for shell readiness before sending the next command. A fixed sleep worked only as a crude probe; bounded quiescence polling produced cleaner results.
+
+## Additional implementation finding: exact tmux targets matter
+
+During post-implementation validation, another issue surfaced:
+
+- tmux session targeting by plain name can match by prefix
+- a target like `victor-42b43516-stg` can accidentally resolve to a different live session such as `victor-42b43516-stg-ux`
+
+That is not safe for this extension because staging-session naming collisions are realistic during experiments.
+
+So the extension should prefer exact tmux session targets such as:
+
+- `=session-name`
+
+This avoids accidental cross-session operations during list, focus, swap, kill, and attach flows.
+
+## Post-implementation validation snapshot
+
+A direct runtime check against the live tmux session validated this flow with the current implementation:
+
+- start a fresh managed pane offscreen with auto-show disabled
+- list it as an offscreen managed pane
+- peek its output by logical pane name
+- focus it into the CC view
+- close it by logical pane name
+
+That pass confirmed the pane-centric flow works correctly once both of these fixes are in place:
+
+- bounded shell-readiness before sending commands into fresh shells
+- exact session targeting to avoid tmux prefix collisions
 
 ## Short version
 

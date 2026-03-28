@@ -10,7 +10,7 @@
  */
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import type { CompletionDelivery, SilenceConfig } from "./types.js";
-import { run, tryRun, listWindows, captureOutput, tmuxEscape } from "./session.js";
+import { run, tryRun, listWindows, captureOutput, tmuxEscape, tmuxSessionTarget } from "./session.js";
 
 const IDLE_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", "csh"]);
 const POLL_INTERVAL_MS = 2000;
@@ -61,13 +61,13 @@ export function trackCompletion(pi: ExtensionAPI, session: string, windowIndex: 
 
 	// Snapshot what's running right now (might still be the shell if send-keys
 	// hasn't been processed yet — we handle that with a startup grace period).
-	const currentCmd = tryRun(`tmux display -p -t ${session}:${windowIndex} "#{pane_current_command}"`);
+	const currentCmd = tryRun(`tmux display -p -t ${tmuxSessionTarget(session)}:${windowIndex} "#{pane_current_command}"`);
 	let seenNonShell = !IDLE_SHELLS.has(currentCmd ?? "");
 	let ticks = 0;
 
 	const timer = setInterval(() => {
 		ticks++;
-		const cmd = tryRun(`tmux display -p -t ${session}:${windowIndex} "#{pane_current_command}"`);
+		const cmd = tryRun(`tmux display -p -t ${tmuxSessionTarget(session)}:${windowIndex} "#{pane_current_command}"`);
 
 		// Window or session gone — clean up silently
 		if (cmd === null) {
@@ -149,8 +149,8 @@ export function registerSilence(session: string, windowIndex: number, config: Si
 export function clearSilenceForWindow(session: string, windowIndex: number): boolean {
 	const key = silenceKey(session, windowIndex);
 	const had = silenceTrackers.delete(key);
-	tryRun(`tmux set-option -w -t ${session}:${windowIndex} monitor-silence 0`);
-	tryRun(`tmux set-hook -uw -t ${session}:${windowIndex} alert-silence`);
+	tryRun(`tmux set-option -w -t ${tmuxSessionTarget(session)}:${windowIndex} monitor-silence 0`);
+	tryRun(`tmux set-hook -uw -t ${tmuxSessionTarget(session)}:${windowIndex} alert-silence`);
 	return had;
 }
 
@@ -165,11 +165,11 @@ export function checkSilence(pi: ExtensionAPI, session: string, windowIndex: num
 	if (!tracker) return;
 
 	// Check if tmux fired a silence alert via environment variable
-	const flag = tryRun(`tmux show-environment -t ${session} PI_SILENCE_${windowIndex} 2>/dev/null`);
+	const flag = tryRun(`tmux show-environment -t ${tmuxSessionTarget(session)} PI_SILENCE_${windowIndex} 2>/dev/null`);
 	if (!flag || !flag.includes("=1")) return;
 
 	// Clear the flag
-	tryRun(`tmux set-environment -t ${session} -u PI_SILENCE_${windowIndex}`);
+	tryRun(`tmux set-environment -t ${tmuxSessionTarget(session)} -u PI_SILENCE_${windowIndex}`);
 
 	const windows = listWindows(session);
 	const windowTitle = windows.find((w) => w.index === windowIndex)?.title ?? `window ${windowIndex}`;
@@ -201,7 +201,7 @@ export function checkSilence(pi: ExtensionAPI, session: string, windowIndex: num
  */
 export function sendCommandToPane(paneTarget: string, command: string): void {
 	// Exit copy mode if active (no-op error if not in copy mode — tryRun swallows it)
-	tryRun(`tmux send-keys -t ${paneTarget} -X cancel`);
+	tryRun(`tmux send-keys -t ${paneTarget} -X cancel 2>/dev/null`);
 	// Clear any partial input on the command line
 	tryRun(`tmux send-keys -t ${paneTarget} C-u`);
 	run(`tmux send-keys -t ${paneTarget} "${tmuxEscape(command)}" C-m`);
@@ -223,7 +223,7 @@ export function createWindowWithCommand(
 	windowName: string,
 ): number {
 	const name = windowName.slice(0, 30);
-	const raw = run(`tmux new-window -t ${session} -n "${tmuxEscape(name)}" -c "${cwd}" -P -F "#{window_index}"`);
+	const raw = run(`tmux new-window -t ${tmuxSessionTarget(session)} -n "${tmuxEscape(name)}" -c "${cwd}" -P -F "#{window_index}"`);
 	const index = parseInt(raw, 10);
 	sendCommand(session, index, command);
 	return index;
@@ -287,7 +287,7 @@ export function startCommandInFirstWindow(
 	windowName: string,
 	command: string,
 ): void {
-	run(`tmux rename-window -t ${session}:0 "${tmuxEscape(windowName)}"`);
+	run(`tmux rename-window -t ${tmuxSessionTarget(session)}:0 "${tmuxEscape(windowName)}"`);
 	sendCommand(session, 0, command);
 }
 
@@ -297,10 +297,10 @@ export function startCommandInFirstWindow(
 
 function wireSilence(session: string, windowIndex: number, config: SilenceConfig): void {
 	if (config.timeout <= 0) return;
-	run(`tmux set-option -w -t ${session}:${windowIndex} monitor-silence ${config.timeout}`);
+	run(`tmux set-option -w -t ${tmuxSessionTarget(session)}:${windowIndex} monitor-silence ${config.timeout}`);
 	// Hook sets an env var that we check during polling — no files needed
-	const alertHook = `set-environment -t ${session} PI_SILENCE_${windowIndex} 1`;
-	run(`tmux set-hook -w -t ${session}:${windowIndex} alert-silence "${tmuxEscape(alertHook)}"`);
+	const alertHook = `set-environment -t ${tmuxSessionTarget(session)} PI_SILENCE_${windowIndex} 1`;
+	run(`tmux set-hook -w -t ${tmuxSessionTarget(session)}:${windowIndex} alert-silence "${tmuxEscape(alertHook)}"`);
 }
 
 // ---------------------------------------------------------------------------

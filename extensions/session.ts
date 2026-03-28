@@ -48,9 +48,14 @@ export function deriveSessionName(projectRoot: string): string {
 	return `${short}-${fingerprint}`;
 }
 
+/** Build an exact tmux session target to avoid prefix matches. */
+export function tmuxSessionTarget(name: string): string {
+	return `=${name}`;
+}
+
 /** Check whether a tmux session with the given name is alive. */
 export function isSessionAlive(name: string): boolean {
-	return tryRun(`tmux has-session -t ${name} 2>/dev/null && echo ok`) === "ok";
+	return tryRun(`tmux has-session -t ${tmuxSessionTarget(name)} 2>/dev/null && echo ok`) === "ok";
 }
 
 /**
@@ -103,11 +108,11 @@ export function ensureStagingSession(session: string, cwd: string): string {
  * Returns the pane ID.
  */
 export function ensureViewPane(session: string, cwd: string, layout: string): string {
-	const panes = tryRun(`tmux list-panes -t ${session}:0 -F "#{pane_index} #{pane_id}"`);
+	const panes = tryRun(`tmux list-panes -t ${tmuxSessionTarget(session)}:0 -F "#{pane_index} #{pane_id}"`);
 	const existing = panes?.split("\n").find((l) => l.startsWith("1 "));
 	if (existing) return existing.split(" ")[1] ?? "";
 	const flag = layout === "split-horizontal" ? "-v" : "-h";
-	const raw = run(`tmux split-window ${flag} -t ${session}:0 -c "${cwd}" -d -P -F "#{pane_id}"`);
+	const raw = run(`tmux split-window ${flag} -t ${tmuxSessionTarget(session)}:0 -c "${cwd}" -d -P -F "#{pane_id}"`);
 	return raw.trim();
 }
 
@@ -117,9 +122,9 @@ export function ensureViewPane(session: string, cwd: string, layout: string): st
  */
 export function createStagingWindow(staging: string, cwd: string, name: string): number {
 	const safeName = name.slice(0, 30);
-	run(`tmux new-window -d -t ${staging} -n "${tmuxEscape(safeName)}" -c "${cwd}"`);
+	run(`tmux new-window -d -t ${tmuxSessionTarget(staging)} -n "${tmuxEscape(safeName)}" -c "${cwd}"`);
 	// Get the index of the window we just created (last window by index)
-	const raw = tryRun(`tmux list-windows -t ${staging} -F "#{window_index}\t#{window_name}"`);
+	const raw = tryRun(`tmux list-windows -t ${tmuxSessionTarget(staging)} -F "#{window_index}\t#{window_name}"`);
 	if (!raw) return 0;
 	for (const line of raw.split("\n").reverse()) {
 		const parts = line.split("\t");
@@ -143,14 +148,14 @@ export function createStagingWindow(staging: string, cwd: string, name: string):
  * tricks because those earlier approaches either flashed or disturbed layout.
  */
 export function swapViewPane(session: string, staging: string, stagingIdx: number): void {
-	run(`tmux swap-pane -d -s ${session}:0.1 -t ${staging}:${stagingIdx}.0`);
+	run(`tmux swap-pane -d -s ${tmuxSessionTarget(session)}:0.1 -t ${tmuxSessionTarget(staging)}:${stagingIdx}.0`);
 }
 
 /**
  * Respawn an idle staging window with a fresh shell (no new window creation).
  */
 export function respawnStagingWindow(staging: string, windowIdx: number, cwd: string): void {
-	run(`tmux respawn-pane -k -t ${staging}:${windowIdx}.0 -c "${cwd}"`);
+	run(`tmux respawn-pane -k -t ${tmuxSessionTarget(staging)}:${windowIdx}.0 -c "${cwd}"`);
 }
 
 /** Mark a pane as managed by pi-tmux for a specific project session. */
@@ -195,7 +200,7 @@ export function listManagedPanes(ownerSession: string): ManagedPaneInfo[] {
 	const panes: ManagedPaneInfo[] = [];
 	for (const sessionName of sessions) {
 		const raw = tryRun(
-			`tmux list-panes -t ${sessionName} -F "#{pane_id}\t#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_pid}\t#{@pi_managed}\t#{@pi_owner_session}\t#{@pi_title}"`,
+			`tmux list-panes -s -t ${tmuxSessionTarget(sessionName)} -F "#{pane_id}\t#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_pid}\t#{@pi_managed}\t#{@pi_owner_session}\t#{@pi_title}"`,
 		);
 		if (!raw) continue;
 		for (const line of raw.split("\n")) {
@@ -232,7 +237,7 @@ export function commandSession(session: string): string {
 
 /** List all windows in a tmux session. Operates on the given session name as-is. */
 export function listWindows(sessionName: string): WindowInfo[] {
-	const raw = tryRun(`tmux list-windows -t ${sessionName} -F "#{window_index}\t#{window_name}\t#{window_active}"`);
+	const raw = tryRun(`tmux list-windows -t ${tmuxSessionTarget(sessionName)} -F "#{window_index}\t#{window_name}\t#{window_active}"`);
 	if (!raw) return [];
 	return raw.split("\n").map((line) => {
 		const parts = line.split("\t");
@@ -247,13 +252,13 @@ export function listWindows(sessionName: string): WindowInfo[] {
 /** Capture scrollback from one or all windows. Returns formatted output. */
 export function captureOutput(sessionName: string, target: number | "all"): string {
 	if (target !== "all") {
-		return tryRun(`tmux capture-pane -t ${sessionName}:${target} -p -S -50`) ?? "(no output)";
+		return tryRun(`tmux capture-pane -t ${tmuxSessionTarget(sessionName)}:${target} -p -S -50`) ?? "(no output)";
 	}
 	const windows = listWindows(sessionName);
 	if (windows.length === 0) return "(no windows)";
 	return windows
 		.map((w) => {
-			const paneOutput = tryRun(`tmux capture-pane -t ${sessionName}:${w.index} -p -S -50`) ?? "(no output)";
+			const paneOutput = tryRun(`tmux capture-pane -t ${tmuxSessionTarget(sessionName)}:${w.index} -p -S -50`) ?? "(no output)";
 			return `-- window ${w.index}: ${w.title} --\n${paneOutput}`;
 		})
 		.join("\n\n");
@@ -265,7 +270,7 @@ export function captureOutput(sessionName: string, target: number | "all"): stri
  */
 export function isWindowIdle(sessionName: string, windowIndex: number): boolean {
 	const raw = tryRun(
-		`tmux list-windows -t ${sessionName} -F "#{window_index}\t#{pane_current_command}\t#{pane_pid}"`,
+		`tmux list-windows -t ${tmuxSessionTarget(sessionName)} -F "#{window_index}\t#{pane_current_command}\t#{pane_pid}"`,
 	);
 	if (!raw) return false;
 	for (const line of raw.split("\n")) {
