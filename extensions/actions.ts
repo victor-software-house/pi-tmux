@@ -272,12 +272,17 @@ export function actionFocus(session: string, target: number | string): ActionRes
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 
 	if (process.env.TMUX) {
-		// Focus = swap the requested staging window into the view pane
-		const staging = deriveStagingName(session);
-		const idx = resolveWindow(staging, target) ?? (typeof target === "number" ? target : undefined);
-		if (idx === undefined) return { ok: false, message: `No window '${target}'.` };
-		swapViewPane(session, staging, idx);
-		return { ok: true, message: `Switched to :${idx}`, details: { session, window: idx } };
+		const pane = resolveManagedPane(session, target);
+		if (!pane) return { ok: false, message: `No pane '${target}'.` };
+		if (pane.visible) {
+			return { ok: true, message: `Pane ${pane.paneId} is already visible.`, details: { session, paneId: pane.paneId } };
+		}
+		const location = getPaneLocation(pane.paneId);
+		if (!location || location.session !== deriveStagingName(session)) {
+			return { ok: false, message: `Pane ${pane.paneId} is not in a swappable staging location.` };
+		}
+		swapViewPane(session, location.session, location.windowIndex);
+		return { ok: true, message: `Focused pane ${pane.paneId} — ${pane.title}`, details: { session, paneId: pane.paneId, window: location.windowIndex } };
 	}
 
 	const idx = resolveWindow(session, target);
@@ -294,12 +299,13 @@ export function actionClose(session: string, target: number | string): ActionRes
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 
 	if (process.env.TMUX) {
-		const staging = deriveStagingName(session);
-		const idx = resolveWindow(staging, target) ?? (typeof target === "number" ? target : undefined);
-		if (idx === undefined) return { ok: false, message: `No window '${target}'.` };
-		tryRun(`tmux kill-window -t ${staging}:${idx}`);
-		const remaining = listWindows(staging).length;
-		return { ok: true, message: `Closed :${idx}. ${remaining} window(s) remain.`, details: { session, window: idx } };
+		const pane = resolveManagedPane(session, target);
+		if (!pane) return { ok: false, message: `No pane '${target}'.` };
+		const location = getPaneLocation(pane.paneId);
+		if (!location) return { ok: false, message: `Pane ${pane.paneId} is no longer available.` };
+		tryRun(`tmux kill-pane -t ${pane.paneId}`);
+		const remaining = listManagedPanes(session).length;
+		return { ok: true, message: `Closed pane ${pane.paneId}. ${remaining} managed pane(s) remain.`, details: { session, paneId: pane.paneId, window: location.windowIndex } };
 	}
 
 	const idx = resolveWindow(session, target);
@@ -314,10 +320,29 @@ export function actionClose(session: string, target: number | string): ActionRes
 // peek — capture recent output
 // ---------------------------------------------------------------------------
 
-export function actionPeek(session: string, target: number | "all"): ActionResult {
+export function actionPeek(session: string, target: number | string | "all"): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 
-	const output = captureOutput(commandSession(session), target);
+	if (process.env.TMUX) {
+		if (target === "all") {
+			const panes = listManagedPanes(session);
+			if (panes.length === 0) return { ok: true, message: "(no managed panes)", details: { session } };
+			const output = panes
+				.map((pane) => {
+					const paneOutput = tryRun(`tmux capture-pane -t ${pane.paneId} -p -S -50`) ?? "(no output)";
+					return `-- pane ${pane.paneId}: ${pane.title} (${pane.visible ? "visible" : "offscreen"}, ${pane.idle ? "idle" : "running"}) --\n${paneOutput}`;
+				})
+				.join("\n\n");
+			return { ok: true, message: output, details: { session } };
+		}
+
+		const pane = resolveManagedPane(session, target);
+		if (!pane) return { ok: false, message: `No pane '${target}'.` };
+		const output = tryRun(`tmux capture-pane -t ${pane.paneId} -p -S -50`) ?? "(no output)";
+		return { ok: true, message: output, details: { session, paneId: pane.paneId } };
+	}
+
+	const output = captureOutput(commandSession(session), target === "all" || typeof target === "number" ? target : "all");
 	return { ok: true, message: output, details: { session } };
 }
 
@@ -328,9 +353,16 @@ export function actionPeek(session: string, target: number | "all"): ActionResul
 export function actionList(session: string): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 
+	if (process.env.TMUX) {
+		const panes = listManagedPanes(session);
+		const formatted = panes.map((pane) => `  ${pane.paneId}  ${pane.title}  (${pane.visible ? "visible" : "offscreen"}, ${pane.idle ? "idle" : "running"}, ${pane.session}:${pane.windowIndex}.${pane.paneIndex})`);
+		const header = `Session ${session} — ${panes.length} managed pane(s) (attached)`;
+		return { ok: true, message: `${header}\n${formatted.join("\n")}`, details: { session, panes, attached: true } };
+	}
+
 	const cmdSession = commandSession(session);
 	const windows = listWindows(cmdSession);
-	const attached = process.env.TMUX ? true : hasAttachedPane(session);
+	const attached = hasAttachedPane(session);
 	const formatted = windows.map((w) => `  :${w.index}  ${w.title}${w.active ? "  (active)" : ""}`);
 	const header = `Session ${session} — ${windows.length} window(s)${attached ? " (attached)" : ""}`;
 	return { ok: true, message: `${header}\n${formatted.join("\n")}`, details: { session, windows, attached } };
@@ -362,8 +394,16 @@ export function actionKill(session: string): ActionResult {
 export function actionClear(session: string): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: "No active session." };
 
+	if (process.env.TMUX) {
+		const idlePanes = listManagedPanes(session).filter((pane) => pane.idle);
+		if (idlePanes.length === 0) return { ok: true, message: "No idle panes to clear." };
+		for (const pane of idlePanes) {
+			tryRun(`tmux kill-pane -t ${pane.paneId}`);
+		}
+		return { ok: true, message: `Cleared ${idlePanes.length} idle pane(s).` };
+	}
+
 	const cmdSession = commandSession(session);
-	const idleShells = new Set(["bash", "zsh", "sh", "fish", "dash"]);
 	const raw = tryRun(`tmux list-windows -t ${cmdSession} -F "#{window_index}\t#{pane_current_command}\t#{pane_pid}"`);
 	if (!raw) return { ok: true, message: "No windows to clear." };
 
@@ -373,7 +413,7 @@ export function actionClear(session: string): ActionResult {
 			const parts = line.split("\t");
 			return { index: parseInt(parts[0] ?? "0", 10), cmd: parts[1] ?? "", pid: parts[2] ?? "" };
 		})
-		.filter((w) => idleShells.has(w.cmd) && !tryRun(`pgrep -P ${w.pid}`));
+		.filter((w) => ["bash", "zsh", "sh", "fish", "dash"].includes(w.cmd) && !tryRun(`pgrep -P ${w.pid}`));
 
 	if (idle.length === 0) return { ok: true, message: "No idle windows to clear." };
 
@@ -383,7 +423,6 @@ export function actionClear(session: string): ActionResult {
 
 	const remaining = listWindows(cmdSession).length;
 	if (process.env.TMUX && remaining === 0) {
-		// No command windows left — remove the view pane too
 		tryRun(`tmux kill-pane -t ${session}:0.1`);
 	}
 	return { ok: true, message: `Cleared ${idle.length} idle window(s).` };
@@ -393,12 +432,24 @@ export function actionClear(session: string): ActionResult {
 // mute — disable silence notifications for a window
 // ---------------------------------------------------------------------------
 
-export function actionMute(session: string, windowIndex: number): ActionResult {
+export function actionMute(session: string, target: number | string): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 
+	if (process.env.TMUX) {
+		const pane = resolveManagedPane(session, target);
+		if (!pane) return { ok: false, message: `No pane '${target}'.` };
+		const location = getPaneLocation(pane.paneId);
+		if (!location) return { ok: false, message: `Pane ${pane.paneId} is no longer available.` };
+		clearSilenceForWindow(location.session, location.windowIndex);
+		return { ok: true, message: `Muted silence alerts for pane ${pane.paneId} — ${pane.title}.` };
+	}
+
+	if (typeof target !== "number") {
+		return { ok: false, message: `Error: mute requires a numeric window index outside tmux mode.` };
+	}
 	const cmdSession = commandSession(session);
-	clearSilenceForWindow(cmdSession, windowIndex);
+	clearSilenceForWindow(cmdSession, target);
 	const windows = listWindows(cmdSession);
-	const w = windows.find((win) => win.index === windowIndex);
-	return { ok: true, message: `Muted silence alerts for "${w?.title ?? `window ${windowIndex}`}" (:${windowIndex}).` };
+	const w = windows.find((win) => win.index === target);
+	return { ok: true, message: `Muted silence alerts for "${w?.title ?? `window ${target}`}" (:${target}).` };
 }

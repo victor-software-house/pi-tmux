@@ -160,8 +160,10 @@ export default function (pi: ExtensionAPI) {
 							? ("all" as const)
 							: typeof params.window === "number"
 								? params.window
-								: parseInt(String(params.window), 10);
-					return toToolResult(actionPeek(session, typeof target === "number" && Number.isNaN(target) ? "all" : target));
+								: Number.isNaN(Number.parseInt(String(params.window), 10))
+									? String(params.window)
+									: Number.parseInt(String(params.window), 10);
+					return toToolResult(actionPeek(session, target));
 				}
 
 				case "list":
@@ -175,13 +177,10 @@ export default function (pi: ExtensionAPI) {
 						return toToolResult({ ok: false, message: "Error: mute is disabled in settings." });
 					}
 					if (params.window === undefined || params.window === "all") {
-						return toToolResult({ ok: false, message: "Error: 'window' index required for mute." });
+						return toToolResult({ ok: false, message: "Error: 'window' target required for mute." });
 					}
-					const muteIdx = typeof params.window === "number" ? params.window : parseInt(String(params.window), 10);
-					if (Number.isNaN(muteIdx)) {
-						return toToolResult({ ok: false, message: `Error: invalid window index '${params.window}'.` });
-					}
-					return toToolResult(actionMute(session, muteIdx));
+					const muteTarget = typeof params.window === "number" ? params.window : Number.isNaN(Number.parseInt(String(params.window), 10)) ? String(params.window) : Number.parseInt(String(params.window), 10);
+					return toToolResult(actionMute(session, muteTarget));
 				}
 
 				default:

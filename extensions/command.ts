@@ -24,7 +24,7 @@ import {
 	SHELL_MODE_VALUES,
 	MAX_WINDOWS_RANGE,
 } from "./settings.js";
-import { resolveProjectRoot, deriveSessionName, listWindows } from "./session.js";
+import { resolveProjectRoot, deriveSessionName, listWindows, listManagedPanes } from "./session.js";
 import { actionAttach, actionList, actionClear, actionKill, actionPeek, type ActionResult } from "./actions.js";
 
 /** Route an ActionResult to the UI. */
@@ -457,27 +457,45 @@ async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session
 		return;
 	}
 
-	let target: number | "all";
+	let target: number | string | "all";
 
 	if (windowArg !== undefined) {
 		target = windowArg;
 	} else {
 		// Show interactive picker
-		const windows = listWindows(session);
-		const options = ["all windows", ...windows.map((w) => `:${w.index}  ${w.title}${w.active ? "  (active)" : ""}`)];
-		const choice = await ctx.ui.select("Capture output from:", options);
-		if (choice === undefined || choice === null) return;
-
-		if (String(choice) === "0" || choice === "all windows") {
-			target = "all";
-		} else {
-			const choiceIdx = typeof choice === "number" ? choice - 1 : options.indexOf(String(choice)) - 1;
-			const selectedWindow = windows[choiceIdx];
-			if (!selectedWindow) {
-				ctx.ui.notify("Invalid selection.", "error");
-				return;
+		if (process.env.TMUX) {
+			const panes = listManagedPanes(session);
+			const options = ["all panes", ...panes.map((pane) => `${pane.paneId}  ${pane.title}${pane.visible ? "  (visible)" : ""}`)];
+			const choice = await ctx.ui.select("Capture output from:", options);
+			if (choice === undefined || choice === null) return;
+			if (String(choice) === "0" || choice === "all panes") {
+				target = "all";
+			} else {
+				const choiceIdx = typeof choice === "number" ? choice - 1 : options.indexOf(String(choice)) - 1;
+				const selectedPane = panes[choiceIdx];
+				if (!selectedPane) {
+					ctx.ui.notify("Invalid selection.", "error");
+					return;
+				}
+				target = selectedPane.paneId;
 			}
-			target = selectedWindow.index;
+		} else {
+			const windows = listWindows(session);
+			const options = ["all windows", ...windows.map((w) => `:${w.index}  ${w.title}${w.active ? "  (active)" : ""}`)];
+			const choice = await ctx.ui.select("Capture output from:", options);
+			if (choice === undefined || choice === null) return;
+
+			if (String(choice) === "0" || choice === "all windows") {
+				target = "all";
+			} else {
+				const choiceIdx = typeof choice === "number" ? choice - 1 : options.indexOf(String(choice)) - 1;
+				const selectedWindow = windows[choiceIdx];
+				if (!selectedWindow) {
+					ctx.ui.notify("Invalid selection.", "error");
+					return;
+				}
+				target = selectedWindow.index;
+			}
 		}
 	}
 
