@@ -1,5 +1,8 @@
 import { describe, expect, test, mock, beforeEach } from "bun:test";
 
+// Ensure tests run as if outside tmux regardless of the host environment
+delete process.env.TMUX;
+
 // Mock execSync before importing actions
 // biome-ignore: test mock needs flexible signature
 const execSyncMock = mock((_cmd?: string) => "");

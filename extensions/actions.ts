@@ -144,6 +144,7 @@ export function actionClose(session: string, target: number | string): ActionRes
 
 	const idx = resolveWindow(session, target);
 	if (idx === undefined) return { ok: false, message: `No window '${target}' in session ${session}.` };
+	if (process.env.TMUX && idx === 0) return { ok: false, message: "Error: window :0 is reserved for pi and cannot be closed." };
 
 	tryRun(`tmux kill-window -t ${session}:${idx}`);
 	const remaining = isSessionAlive(session) ? listWindows(session).length : 0;
@@ -182,6 +183,10 @@ export function actionList(session: string): ActionResult {
 
 export function actionKill(session: string): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
+	if (process.env.TMUX) {
+		const piSession = require("child_process").execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8" }).trim();
+		if (session === piSession) return { ok: false, message: "Error: cannot kill pi's own tmux session." };
+	}
 
 	closeAttachedSessions(session);
 	run(`tmux kill-session -t ${session}`);
