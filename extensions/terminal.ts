@@ -51,6 +51,11 @@ function trackPane(tmuxSession: string, itermId: string): void {
 
 /** Check whether any terminal client is attached to this tmux session. */
 export function hasAttachedPane(tmuxSession: string): boolean {
+	// When pi runs inside tmux (CC mode), the CC control client is always
+	// attached.  That doesn't count as a user-visible pane — splits are
+	// native tmux operations and should always be allowed.
+	if (process.env.TMUX) return false;
+
 	const clients = tryRun(`tmux list-clients -t ${tmuxSession} -F "#{client_tty}" 2>/dev/null`);
 	return clients !== null && clients.trim().length > 0;
 }
@@ -82,15 +87,19 @@ export function openTerminalTab(opts: AttachOptions): string {
 	const attachCmd = `tmux attach -t ${session}`;
 
 	if (process.env.TMUX) {
+		// Inside tmux (CC mode): native splits/windows via tmux.
+		// Unset TMUX to allow nested attach to the tool session.
+		const target = tmuxWindow !== undefined ? `${session}:${tmuxWindow}` : session;
+		const cmd = `TMUX='' exec tmux attach -t ${target}`;
 		if (mode === "split-vertical") {
-			run(`tmux split-window -h -t ${session}`);
-			return `Opened tmux vertical split in session ${session}.`;
+			run(`tmux split-window -h "${tmuxEscape(cmd)}"`);
+			return `Opened vertical split attached to ${session}.`;
 		} else if (mode === "split-horizontal") {
-			run(`tmux split-window -v -t ${session}`);
-			return `Opened tmux horizontal split in session ${session}.`;
+			run(`tmux split-window -v "${tmuxEscape(cmd)}"`);
+			return `Opened horizontal split attached to ${session}.`;
 		} else {
-			run(`tmux new-window -t ${session}`);
-			return `Opened tmux tab in session ${session}.`;
+			run(`tmux new-window "${tmuxEscape(cmd)}"`);
+			return `Opened tab attached to ${session}.`;
 		}
 	}
 
