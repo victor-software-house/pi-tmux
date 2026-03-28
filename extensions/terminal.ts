@@ -46,13 +46,6 @@ function openViaTmux(session: string, mode: AttachLayout, tmuxWindow?: number): 
 
 let _legacy: typeof import("./terminal-legacy.js") | null = null;
 
-async function getLegacy() {
-	if (!_legacy) {
-		_legacy = await import("./terminal-legacy.js");
-	}
-	return _legacy;
-}
-
 function getLegacySync() {
 	if (!_legacy) {
 		// Synchronous require fallback — terminal-legacy.js is always bundled
