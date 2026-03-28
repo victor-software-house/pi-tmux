@@ -105,21 +105,6 @@ export default function (pi: ExtensionAPI) {
 					// iTerm2 not available — user must attach manually
 				}
 
-				// Close the original pi tab after shutdown
-				if (piSessionId) {
-					const sid = piSessionId;
-					process.on("exit", () => {
-						try {
-							require("child_process").execSync(
-								`it2api send-text --session-id ${sid} "exit\n"`,
-								{ stdio: "ignore" },
-							);
-						} catch {
-							// best effort
-						}
-					});
-				}
-
 				ctx.ui.notify("Promoting session into tmux...", "info");
 				ctx.shutdown();
 			},
