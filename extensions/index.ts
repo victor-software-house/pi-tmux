@@ -62,6 +62,46 @@ export default function (pi: ExtensionAPI) {
 
 	registerTmuxCommand(pi, () => piSessionId);
 
+	// /tmux-promote — only available when pi is NOT inside tmux
+	if (!process.env.TMUX) {
+		pi.registerCommand("tmux-promote", {
+			description: "Move this pi session into tmux (native splits, scrolling)",
+			handler: async (_args, ctx) => {
+				const sessionFile = ctx.sessionManager.getSessionFile();
+				if (!sessionFile) {
+					ctx.ui.notify("No active session file to promote.", "error");
+					return;
+				}
+
+				const root = resolveProjectRoot(ctx.cwd);
+				const session = deriveSessionName(root);
+
+				// Replay process.argv with --session replaced
+				const [runtime, ...argv] = process.argv;
+				const filtered: string[] = [];
+				for (let i = 0; i < argv.length; i++) {
+					const arg = argv[i];
+					if (arg === "--session" || arg === "-s") {
+						i++; // skip value
+					} else {
+						filtered.push(arg ?? "");
+					}
+				}
+				filtered.push("--session", sessionFile);
+
+				const shell = (a: string) => (a.includes(" ") || a.includes("'") ? `"${a}"` : a);
+				const piCmd = [runtime, ...filtered].map(shell).join(" ");
+
+				const { tryRun: tr, run: r } = await import("./session.js");
+				tr(`tmux kill-session -t ${session} 2>/dev/null`);
+				r(`tmux new-session -d -s ${session} -c "${root}" ${shell(piCmd)}`);
+
+				ctx.ui.notify(`Promoted to tmux session ${session}. Attach with: tmux attach -t ${session}`, "info");
+				ctx.shutdown();
+			},
+		});
+	}
+
 	const flags = getFlags(currentSettings);
 
 	pi.registerTool({
