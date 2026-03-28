@@ -6,7 +6,7 @@
  * respective interfaces.
  */
 import type { AttachLayout, AutoFocus, WindowReuse } from "./types.js";
-import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape, commandSession, ensureStagingSession, ensureViewPane, createStagingWindow, swapViewPane, respawnStagingWindow, deriveStagingName } from "./session.js";
+import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape, commandSession, ensureStagingSession, ensureViewPane, createStagingWindow, swapViewPane, respawnStagingWindow, deriveStagingName, listManagedPanes, markManagedPane, setManagedPaneTitle, getPaneId } from "./session.js";
 import { attachToSession, closeAttachedSessions, hasAttachedPane } from "./terminal.js";
 import { sendCommand, createWindowWithCommand, startCommandInFirstWindow, clearSilenceForWindow, trackCompletionByPane } from "./signals.js";
 
@@ -51,48 +51,68 @@ export function actionRun(session: string, opts: RunOpts): ActionResult {
 		const staging = ensureStagingSession(session, opts.cwd);
 		ensureViewPane(session, opts.cwd, opts.defaultLayout);
 
-		const stagingWindows = listWindows(staging);
+		const managedPanes = listManagedPanes(session);
+		const reusablePanes = managedPanes
+			.filter((pane) => pane.session === staging && pane.idle)
+			.sort((a, b) => b.windowIndex - a.windowIndex);
 
-		// Try to reuse an idle staging window
 		let stagingIdx: number | undefined;
-		let reused = false;
+		let paneId: string | null = null;
+		let lifecycle: "fresh-created" | "fresh-respawned" = "fresh-created";
 
 		if (opts.windowReuse !== "never") {
-			let candidate: typeof stagingWindows[number] | undefined;
-			if (opts.name) {
-				candidate = stagingWindows.filter((w) => w.title === opts.name && isWindowIdle(staging, w.index)).at(-1);
-			} else if (opts.windowReuse === "last") {
-				candidate = [...stagingWindows].reverse().find((w) => isWindowIdle(staging, w.index));
+			let candidate = reusablePanes.find((pane) => pane.title === opts.name);
+			if (!candidate && !opts.name && opts.windowReuse === "last") {
+				candidate = reusablePanes[0];
 			}
 			if (candidate) {
-				stagingIdx = candidate.index;
+				stagingIdx = candidate.windowIndex;
+				paneId = candidate.paneId;
 				respawnStagingWindow(staging, stagingIdx, opts.cwd);
 				tryRun(`tmux rename-window -t ${staging}:${stagingIdx} "${tmuxEscape(windowName)}"`);
-				reused = true;
+				setManagedPaneTitle(paneId, windowName);
+				lifecycle = "fresh-respawned";
 			}
 		}
 
 		if (stagingIdx === undefined) {
-			if (stagingWindows.length >= opts.maxWindows) {
-				return { ok: false, message: `Error: ${stagingWindows.length} windows open (max: ${opts.maxWindows}). Close idle windows first.` };
+			if (managedPanes.length >= opts.maxWindows) {
+				return { ok: false, message: `Error: ${managedPanes.length} panes open (max: ${opts.maxWindows}). Close idle panes first.` };
 			}
 			stagingIdx = createStagingWindow(staging, opts.cwd, windowName);
+			paneId = getPaneId(`${staging}:${stagingIdx}.0`);
+			if (paneId) {
+				markManagedPane(paneId, session, windowName);
+			}
 		}
 
-		// Send command to staging window before swap
+		if (!paneId) {
+			paneId = getPaneId(`${staging}:${stagingIdx}.0`);
+		}
+		if (paneId) {
+			setManagedPaneTitle(paneId, windowName);
+		}
+
+		// Send command to the managed pane before swap.
 		sendCommand(staging, stagingIdx, opts.command);
 
 		// Swap into view pane (atomic, no flash)
 		swapViewPane(session, staging, stagingIdx);
 
-		// Get the pane ID now in the view (for completion tracking)
-		const paneId = tryRun(`tmux list-panes -t ${session}:0 -F "#{pane_index} #{pane_id}"`)
-			?.split("\n").find((l) => l.startsWith("1 "))?.split(" ")[1] ?? "";
-
+		const verb = lifecycle === "fresh-created" ? "Started fresh pane" : "Respawned pane";
 		return {
 			ok: true,
-			message: `${reused ? "Reused" : "Added"} staging window ${stagingIdx} — ${windowName}`,
-			details: { session, stagingIdx, paneId, windowName, created: false, reused },
+			message: `${verb} ${paneId ?? "(unknown)"} — ${windowName}`,
+			details: {
+				session,
+				stagingIdx,
+				paneId: paneId ?? "",
+				windowName,
+				created: lifecycle === "fresh-created",
+				reused: lifecycle === "fresh-respawned",
+				lifecycle,
+				visible: true,
+			},
 		};
 	}
 
