@@ -118,7 +118,7 @@ export function deriveWindowName(command: string): string {
 	return (command.trim().split(/[|;&\s]/)[0]?.split("/").pop() || "shell").slice(0, 30);
 }
 
-/** Escape double quotes for use inside tmux command strings. */
+/** Escape a string for safe embedding inside a tmux send-keys double-quoted argument. */
 export function tmuxEscape(s: string): string {
-	return s.replace(/"/g, '\\"');
+	return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\$/g, "\\$");
 }
