@@ -97,10 +97,10 @@ export default function (pi: ExtensionAPI) {
 				tr(`tmux kill-session -t ${q(tmuxSession)} 2>/dev/null`);
 				r(`tmux new-session -d -s ${q(tmuxSession)} -c ${q(root)} ${q(piCmd)}`);
 
-				// Auto-attach: send tmux attach to this terminal after pi exits
+				// Auto-attach with iTerm2 tmux integration after pi exits
 				if (piSessionId) {
 					const { spawn } = await import("child_process");
-					const attachCmd = `tmux attach -t ${q(tmuxSession)}`;
+					const attachCmd = `tmux -CC attach -t ${q(tmuxSession)}`;
 					const child = spawn("bash", ["-c", `sleep 1 && it2api send-text --session-id ${piSessionId} "${attachCmd}\n"`], {
 						detached: true,
 						stdio: "ignore",
