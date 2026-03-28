@@ -79,8 +79,7 @@ export function openTerminalTab(opts: AttachOptions): string {
 		tryRun(`tmux select-window -t ${session}:${tmuxWindow}`);
 	}
 
-	// Use CC (control channel) mode for iTerm2 — native tmux integration
-	const attachCmd = term === "iTerm.app" ? `tmux -CC attach -t ${session}` : `tmux attach -t ${session}`;
+	const attachCmd = `tmux attach -t ${session}`;
 
 	if (process.env.TMUX) {
 		if (mode === "split-vertical") {
