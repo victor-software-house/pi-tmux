@@ -27,13 +27,6 @@ export function openTerminal(session: string, mode: AttachLayout, tmuxWindow?: n
 
 	const targetWindow = tmuxWindow ?? 0;
 
-	// Same session: windows are already visible as native CC tabs — just focus.
-	if (session === piSession) {
-		tryRun(`tmux select-window -t ${session}:${targetWindow}`);
-		return `Focused :${targetWindow} in ${session}.`;
-	}
-
-	// Different session: bring the tool window into pi's session.
 	if (mode === "split-vertical" || mode === "split-horizontal") {
 		const flag = mode === "split-vertical" ? "-h" : "-v";
 		const result = tryRun(`tmux join-pane ${flag} -s ${session}:${targetWindow} -t ${piSession}`);
