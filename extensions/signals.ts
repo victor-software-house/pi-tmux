@@ -228,9 +228,11 @@ export function createWindowWithCommand(
  * Send a command to the persistent command pane (pane 1 of window 0).
  * Inside tmux mode only — no new windows, single tab.
  */
-export function sendCommandToPane(paneId: string, command: string): void {
+export function sendCommandToPane(paneId: string, label: string, command: string): void {
 	tryRun(`tmux send-keys -t ${paneId} -X cancel`);
 	tryRun(`tmux send-keys -t ${paneId} C-u`);
+	// Clear pane and print label so each command feels like a fresh context
+	run(`tmux send-keys -t ${paneId} "printf '\\\\033c'; echo '── ${tmuxEscape(label)} ──'" C-m`);
 	run(`tmux send-keys -t ${paneId} "${tmuxEscape(command)}" C-m`);
 }
 

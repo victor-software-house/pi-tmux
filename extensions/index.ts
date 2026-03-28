@@ -88,17 +88,17 @@ export default function (pi: ExtensionAPI) {
 					});
 					if (!result.ok) return toToolResult(result);
 
-					const { windowIndex, paneId, windowName, created } = result.details as Record<string, unknown>;
+					const { windowIndex, paneId, stagingIdx, windowName, created } = result.details as Record<string, unknown>;
 
 					if (paneId) {
-						// Tmux mode: track by pane ID
+						// Tmux mode: track by pane ID (works even when pane swaps between sessions)
 						trackCompletionByPane(pi, session, paneId as string, windowName as string, currentSettings.completionDelivery, currentSettings.completionTriggerTurn);
 					} else {
 						const winIdx = windowIndex as number;
 						trackCompletion(pi, session, winIdx, currentSettings.completionDelivery, currentSettings.completionTriggerTurn);
 					}
 
-					const timeout = params.silenceTimeout ?? 0;
+						const timeout = params.silenceTimeout ?? 0;
 					if (timeout > 0 && !paneId) {
 						const silence: SilenceConfig = {
 							timeout,
@@ -108,7 +108,7 @@ export default function (pi: ExtensionAPI) {
 						registerSilence(session, windowIndex as number, silence);
 					}
 
-					// Auto-attach (setting-driven, no-op in tmux mode — pane already visible)
+					// Auto-attach (no-op in tmux mode — view pane already swapped in)
 					let message = result.message;
 					if (!paneId && flags.canAttach && !hasAttachedPane(session)) {
 						const autoFires =

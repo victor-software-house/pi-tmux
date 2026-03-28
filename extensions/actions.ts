@@ -6,9 +6,9 @@
  * respective interfaces.
  */
 import type { AttachLayout, AutoFocus, WindowReuse } from "./types.js";
-import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape, getPiWindowIndex, ensureCommandPane } from "./session.js";
+import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape, getPiWindowIndex, ensureStagingSession, ensureViewPane, createStagingWindow, swapViewPane, respawnStagingWindow, deriveStagingName } from "./session.js";
 import { attachToSession, closeAttachedSessions, hasAttachedPane } from "./terminal.js";
-import { sendCommand, createWindowWithCommand, startCommandInFirstWindow, clearSilenceForWindow, sendCommandToPane, trackCompletionByPane } from "./signals.js";
+import { sendCommand, createWindowWithCommand, startCommandInFirstWindow, clearSilenceForWindow, trackCompletionByPane } from "./signals.js";
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -43,28 +43,63 @@ export interface RunOpts {
 
 export function actionRun(session: string, opts: RunOpts): ActionResult {
 	const windowName = opts.name ? opts.name.slice(0, 30) : deriveWindowName(opts.command);
-	const alive = isSessionAlive(session);
 
 	// -------------------------------------------------------------------
-	// Tmux mode: single tab, command pane only (pane 1 of window 0)
+	// Tmux mode: staging session + view pane swap (zero flash)
 	// -------------------------------------------------------------------
 	if (process.env.TMUX) {
-		if (!alive) {
-			// Should not happen in promoted mode, but handle gracefully
-			return { ok: false, message: "No active tmux session. Run /tmux-promote first." };
+		const staging = ensureStagingSession(session, opts.cwd);
+		ensureViewPane(session, opts.cwd, opts.defaultLayout);
+
+		const stagingWindows = listWindows(session); // uses staging via listWindows
+
+		// Try to reuse an idle staging window
+		let stagingIdx: number | undefined;
+		let reused = false;
+
+		if (opts.windowReuse !== "never") {
+			let candidate: typeof stagingWindows[number] | undefined;
+			if (opts.name) {
+				candidate = stagingWindows.filter((w) => w.title === opts.name && isWindowIdle(staging, w.index)).at(-1);
+			} else if (opts.windowReuse === "last") {
+				candidate = [...stagingWindows].reverse().find((w) => isWindowIdle(staging, w.index));
+			}
+			if (candidate) {
+				stagingIdx = candidate.index;
+				respawnStagingWindow(staging, stagingIdx, opts.cwd);
+				tryRun(`tmux rename-window -t ${staging}:${stagingIdx} "${tmuxEscape(windowName)}"`);
+				reused = true;
+			}
 		}
-		const paneId = ensureCommandPane(session, opts.cwd, opts.defaultLayout);
-		sendCommandToPane(paneId, opts.command);
+
+		if (stagingIdx === undefined) {
+			if (stagingWindows.length >= opts.maxWindows) {
+				return { ok: false, message: `Error: ${stagingWindows.length} windows open (max: ${opts.maxWindows}). Close idle windows first.` };
+			}
+			stagingIdx = createStagingWindow(staging, opts.cwd, windowName);
+		}
+
+		// Send command to staging window before swap
+		sendCommand(staging, stagingIdx, opts.command);
+
+		// Swap into view pane (atomic, no flash)
+		swapViewPane(session, staging, stagingIdx);
+
+		// Get the pane ID now in the view (for completion tracking)
+		const paneId = tryRun(`tmux list-panes -t ${session}:0 -F "#{pane_index} #{pane_id}"`)
+			?.split("\n").find((l) => l.startsWith("1 "))?.split(" ")[1] ?? "";
+
 		return {
 			ok: true,
-			message: `Running in command pane: ${windowName}`,
-			details: { session, paneId, windowName, created: false, reused: false },
+			message: `${reused ? "Reused" : "Added"} staging window ${stagingIdx} — ${windowName}`,
+			details: { session, stagingIdx, paneId, windowName, created: false, reused },
 		};
 	}
 
 	// -------------------------------------------------------------------
 	// Legacy mode: window-per-command
 	// -------------------------------------------------------------------
+	const alive = isSessionAlive(session);
 	let windowIndex: number;
 	let reused = false;
 
@@ -104,7 +139,9 @@ export function actionRun(session: string, opts: RunOpts): ActionResult {
 		}
 	}
 
-	if (opts.autoFocus === "always" && isSessionAlive(session)) {
+	// In tmux CC mode, select-window switches the iTerm tab away from pi.
+	// Focus is handled by the user clicking the tab or via /tmux focus.
+	if (opts.autoFocus === "always" && isSessionAlive(session) && !process.env.TMUX) {
 		tryRun(`tmux select-window -t ${session}:${windowIndex}`);
 	}
 
@@ -149,9 +186,17 @@ export function actionAttach(
 export function actionFocus(session: string, target: number | string): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 
+	if (process.env.TMUX) {
+		// Focus = swap the requested staging window into the view pane
+		const staging = deriveStagingName(session);
+		const idx = resolveWindow(staging, target) ?? (typeof target === "number" ? target : undefined);
+		if (idx === undefined) return { ok: false, message: `No window '${target}'.` };
+		swapViewPane(session, staging, idx);
+		return { ok: true, message: `Switched to :${idx}`, details: { session, window: idx } };
+	}
+
 	const idx = resolveWindow(session, target);
 	if (idx === undefined) return { ok: false, message: `No window '${target}' in session ${session}.` };
-
 	tryRun(`tmux select-window -t ${session}:${idx}`);
 	return { ok: true, message: `Switched to :${idx}`, details: { session, window: idx } };
 }
@@ -163,10 +208,18 @@ export function actionFocus(session: string, target: number | string): ActionRes
 export function actionClose(session: string, target: number | string): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 
+	if (process.env.TMUX) {
+		const staging = deriveStagingName(session);
+		const idx = resolveWindow(staging, target) ?? (typeof target === "number" ? target : undefined);
+		if (idx === undefined) return { ok: false, message: `No window '${target}'.` };
+		tryRun(`tmux kill-window -t ${staging}:${idx}`);
+		const remaining = listWindows(session).length;
+		return { ok: true, message: `Closed :${idx}. ${remaining} window(s) remain.`, details: { session, window: idx } };
+	}
+
 	const idx = resolveWindow(session, target);
 	if (idx === undefined) return { ok: false, message: `No window '${target}' in session ${session}.` };
 	if (process.env.TMUX && idx === getPiWindowIndex(session)) return { ok: false, message: `Error: window :${idx} is pi's pane and cannot be closed.` };
-
 	tryRun(`tmux kill-window -t ${session}:${idx}`);
 	const remaining = isSessionAlive(session) ? listWindows(session).length : 0;
 	const msg = remaining > 0 ? `Closed :${idx}. ${remaining} window(s) remain.` : `Closed :${idx}. Session ended.`;
@@ -180,7 +233,8 @@ export function actionClose(session: string, target: number | string): ActionRes
 export function actionPeek(session: string, target: number | "all"): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 
-	const output = captureOutput(session, target);
+	const captureTarget = process.env.TMUX ? deriveStagingName(session) : session;
+	const output = captureOutput(captureTarget, target);
 	return { ok: true, message: output, details: { session } };
 }
 
@@ -205,8 +259,11 @@ export function actionList(session: string): ActionResult {
 export function actionKill(session: string): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 	if (process.env.TMUX) {
-		const piSession = require("child_process").execSync("tmux display-message -p '#{session_name}'", { encoding: "utf-8" }).trim();
-		if (session === piSession) return { ok: false, message: "Error: cannot kill pi's own tmux session." };
+		// Kill the staging session and the view pane
+		const staging = deriveStagingName(session);
+		tryRun(`tmux kill-session -t ${staging}`);
+		tryRun(`tmux kill-pane -t ${session}:0.1`);
+		return { ok: true, message: `Killed command session ${staging}.` };
 	}
 
 	closeAttachedSessions(session);

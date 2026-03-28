@@ -59,21 +59,90 @@ export function resolveWindow(sessionName: string, target: number | string): num
 	return windows.find((w) => w.title === target)?.index;
 }
 
+// ---------------------------------------------------------------------------
+// Tmux mode: staging session + view pane
+// ---------------------------------------------------------------------------
+
+/** Staging session name — command windows created here, no CC involvement, no flash. */
+export function deriveStagingName(session: string): string {
+	return `${session}-stg`;
+}
+
 /**
- * When inside tmux: ensure there is exactly one command pane (pane 1) in window 0.
- * Creates a vertical or horizontal split if it doesn't exist.
- * Returns the pane ID of the command pane.
+ * Ensure the staging session exists. Returns the staging session name.
+ * Staging is a regular tmux session not attached to CC — windows created here
+ * don't appear as iTerm2 tabs.
  */
-export function ensureCommandPane(session: string, cwd: string, layout: string): string {
+export function ensureStagingSession(session: string, cwd: string): string {
+	const staging = deriveStagingName(session);
+	if (!isSessionAlive(staging)) {
+		run(`tmux new-session -d -s ${staging} -c "${cwd}"`);
+	}
+	return staging;
+}
+
+/**
+ * Ensure view pane exists (pane 1 of window 0 in the CC session).
+ * This is the single pane alongside pi where command output is displayed.
+ * Returns the pane ID.
+ */
+export function ensureViewPane(session: string, cwd: string, layout: string): string {
 	const panes = tryRun(`tmux list-panes -t ${session}:0 -F "#{pane_index} #{pane_id}"`);
 	const existing = panes?.split("\n").find((l) => l.startsWith("1 "));
-	if (existing) {
-		return existing.split(" ")[1] ?? "";
-	}
-	// Create the split using the configured layout
+	if (existing) return existing.split(" ")[1] ?? "";
 	const flag = layout === "split-horizontal" ? "-v" : "-h";
-	const raw = run(`tmux split-window ${flag} -t ${session}:0 -c "${cwd}" -P -F "#{pane_id}"`);
+	const raw = run(`tmux split-window ${flag} -t ${session}:0 -c "${cwd}" -d -P -F "#{pane_id}"`);
 	return raw.trim();
+}
+
+/**
+ * Create a new window in the staging session. Returns window index.
+ * No CC involvement — no tab flash.
+ */
+export function createStagingWindow(staging: string, cwd: string, name: string): number {
+	const safeName = name.slice(0, 30);
+	run(`tmux new-window -d -t ${staging} -n "${tmuxEscape(safeName)}" -c "${cwd}"`);
+	// Get the index of the window we just created (last window by index)
+	const raw = tryRun(`tmux list-windows -t ${staging} -F "#{window_index}\t#{window_name}"`);
+	if (!raw) return 0;
+	for (const line of raw.split("\n").reverse()) {
+		const parts = line.split("\t");
+		if (parts[1] === safeName) return parseInt(parts[0] ?? "0", 10);
+	}
+	return 0;
+}
+
+/**
+ * Get the staging window index currently shown in the CC view pane.
+ * Looks up which staging pane is in window 0 pane 1 of the CC session.
+ */
+export function getViewStagingIndex(session: string, staging: string): number | null {
+	const paneId = tryRun(
+		`tmux list-panes -t ${session}:0 -F "#{pane_index} #{pane_id}"`,
+	)?.split("\n").find((l) => l.startsWith("1 "))?.split(" ")[1];
+	if (!paneId) return null;
+	const raw = tryRun(`tmux list-panes -t ${staging} -a -F "#{pane_id}\t#{window_index}"`);
+	if (!raw) return null;
+	for (const line of raw.split("\n")) {
+		const parts = line.split("\t");
+		if (parts[0] === paneId) return parseInt(parts[1] ?? "0", 10);
+	}
+	return null;
+}
+
+/**
+ * Swap the CC view pane with a staging window pane.
+ * Atomic — no new window created, no tab flash, no layout change.
+ */
+export function swapViewPane(session: string, staging: string, stagingIdx: number): void {
+	run(`tmux swap-pane -d -s ${session}:0.1 -t ${staging}:${stagingIdx}.0`);
+}
+
+/**
+ * Respawn an idle staging window with a fresh shell (no new window creation).
+ */
+export function respawnStagingWindow(staging: string, windowIdx: number, cwd: string): void {
+	run(`tmux respawn-pane -k -t ${staging}:${windowIdx}.0 -c "${cwd}"`);
 }
 
 /**
@@ -93,9 +162,11 @@ export function getPiWindowIndex(sessionName: string): number | null {
 
 /** List all windows in a tmux session. Returns empty array if session doesn't exist. */
 export function listWindows(sessionName: string): WindowInfo[] {
-	const raw = tryRun(`tmux list-windows -t ${sessionName} -F "#{window_index}\t#{window_name}\t#{window_active}"`);
+	// In tmux mode, command windows live in the staging session
+	const target = process.env.TMUX ? deriveStagingName(sessionName) : sessionName;
+	const raw = tryRun(`tmux list-windows -t ${target} -F "#{window_index}\t#{window_name}\t#{window_active}"`);
 	if (!raw) return [];
-	const windows = raw.split("\n").map((line) => {
+	return raw.split("\n").map((line) => {
 		const parts = line.split("\t");
 		return {
 			index: parseInt(parts[0] ?? "0", 10),
@@ -103,12 +174,6 @@ export function listWindows(sessionName: string): WindowInfo[] {
 			active: parts[2] === "1",
 		};
 	});
-	// Inside tmux: exclude pi's own window — it must not be touched by the tool.
-	if (process.env.TMUX) {
-		const piIdx = getPiWindowIndex(sessionName);
-		return piIdx !== null ? windows.filter((w) => w.index !== piIdx) : windows;
-	}
-	return windows;
 }
 
 /** Capture scrollback from one or all windows. Returns formatted output. */
