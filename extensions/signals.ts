@@ -196,15 +196,20 @@ export function checkSilence(pi: ExtensionAPI, session: string, windowIndex: num
 // ---------------------------------------------------------------------------
 
 /**
- * Send a command to an existing window via send-keys.
+ * Send a command to an existing pane via send-keys.
  * Just the command, nothing else. History stays clean.
  */
-export function sendCommand(session: string, windowIndex: number, command: string): void {
+export function sendCommandToPane(paneTarget: string, command: string): void {
 	// Exit copy mode if active (no-op error if not in copy mode — tryRun swallows it)
-	tryRun(`tmux send-keys -t ${session}:${windowIndex} -X cancel`);
+	tryRun(`tmux send-keys -t ${paneTarget} -X cancel`);
 	// Clear any partial input on the command line
-	tryRun(`tmux send-keys -t ${session}:${windowIndex} C-u`);
-	run(`tmux send-keys -t ${session}:${windowIndex} "${tmuxEscape(command)}" C-m`);
+	tryRun(`tmux send-keys -t ${paneTarget} C-u`);
+	run(`tmux send-keys -t ${paneTarget} "${tmuxEscape(command)}" C-m`);
+}
+
+/** Send a command to a window by targeting its active pane. */
+export function sendCommand(session: string, windowIndex: number, command: string): void {
+	sendCommandToPane(`${session}:${windowIndex}`, command);
 }
 
 /**

@@ -15,10 +15,10 @@ export function buildActions(flags: FeatureFlags): string[] {
 export function buildParams(flags: FeatureFlags) {
 	const nameDesc =
 		flags.windowReuse === "never"
-			? "Window name for 'run'. Every run creates a new window. Auto-named from command when omitted."
+			? "Logical pane name for 'run'. In fresh mode every run creates a new pane unless an explicit resume target is chosen."
 			: flags.windowReuse === "named"
-				? "Window name for 'run'. Providing a name reuses an existing idle window with that name. Omit to create a new auto-named window."
-				: "Window name for 'run'. Omit to reuse the last idle window automatically. Provide a name to target a specific window by name.";
+				? "Logical pane name for 'run'. In fresh mode, providing a name reuses an existing idle pane with that name. In resume mode, a matching name targets an existing pane."
+				: "Logical pane name for 'run'. In fresh mode, omitting it reuses the last idle pane automatically. In resume mode, a matching name targets an existing pane.";
 
 	return Type.Object({
 		action: StringEnum(buildActions(flags) as [string, ...string[]]),
@@ -39,10 +39,14 @@ export function buildParams(flags: FeatureFlags) {
 			Type.Number({ description: "Max silence interval in seconds. Default 300." }),
 		),
 
-		// targeting param — focus, close, peek, mute, attach
+		shellMode: Type.Optional(
+			Type.String({ description: "Shell continuity for 'run': 'fresh' starts from a fresh shell, 'resume' sends into an existing pane shell." }),
+		),
+
+		// targeting param — run, focus, close, peek, mute, attach
 		window: Type.Optional(
 			Type.Union([Type.Number(), Type.String()], {
-				description: "Window index or name. Required for 'focus', 'close', and 'mute'. Optional for 'peek' (defaults to 'all') and 'attach'.",
+				description: "Pane target by index, name, or pane ID. Required for 'focus', 'close', and 'mute'. Optional for 'run' when resuming, 'peek' (defaults to 'all'), and 'attach'.",
 			}),
 		),
 
@@ -67,7 +71,7 @@ export function buildDescription(flags: FeatureFlags): string {
 		"WHEN TO USE: Use instead of bash for anything long-running or background — dev servers, watchers, builds, test suites. Use bash for quick commands (ls, grep, git status).",
 		"",
 		"Actions:",
-		`- run: Start a command in a tmux window. Completion and exit code are reported automatically.${attachBehaviour ? `\n  ${attachBehaviour}` : ""}`,
+		`- run: Start a command in tmux. Use shellMode 'fresh' for a fresh shell or 'resume' to send into an existing pane.${attachBehaviour ? `\n  ${attachBehaviour}` : ""}`,
 		...when(flags.canAttach, "- attach: Open a terminal view into the session. Supports window targeting via 'window' param."),
 		"- focus: Switch the attached terminal to a window by index or name without opening a new pane.",
 		"- close: Close a specific window by index or name. Use kill to close the entire session.",
@@ -105,9 +109,10 @@ export function buildPromptGuidelines(flags: FeatureFlags): string[] {
 
 	return [
 		"Use tmux for commands that take more than a few seconds or run continuously. Use bash for quick one-shot commands that return immediately.",
-		"After 'run', move on — the extension notifies you automatically when the command finishes with exit code and recent output. Use 'peek' to check intermediate progress.",
+		"After 'run', move on — the extension notifies you automatically when the command finishes with recent output. Use 'peek' to check intermediate progress.",
+		"Use shellMode 'fresh' for clean-shell execution. Use shellMode 'resume' only when you intentionally want existing shell state.",
 		...(attachGuideline ? [attachGuideline] : []),
-		reuseGuideline + " Explicitly named windows preserve scrollback history (send-keys). Auto-reused windows are respawned clean.",
+		reuseGuideline + " Explicitly named panes preserve shell continuity when resumed. Auto-reused fresh panes are respawned clean.",
 		"Use silenceTimeout when a command might prompt for input. Defaults: 60s initial, 1.5x backoff, 5 min cap.",
 		"Do not kill sessions unless explicitly asked.",
 		...when(flags.canMute, "Only mute windows with expected long idle periods (large builds, background daemons). Never mute interactive processes."),

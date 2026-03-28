@@ -81,20 +81,20 @@ describe("buildParams()", () => {
 	test("name param describes windowReuse: last semantics", () => {
 		const schema = buildParams(ALL_ENABLED); // windowReuse: last
 		const nameDesc = (schema.properties.name as { description?: string }).description ?? "";
-		expect(nameDesc.toLowerCase()).toContain("reuse the last idle window");
+		expect(nameDesc.toLowerCase()).toContain("last idle pane");
 	});
 
 	test("name param describes windowReuse: named semantics", () => {
 		const schema = buildParams(REUSE_NAMED);
 		const nameDesc = (schema.properties.name as { description?: string }).description ?? "";
-		expect(nameDesc.toLowerCase()).toContain("reuse");
-		expect(nameDesc.toLowerCase()).toContain("named");
+		expect(nameDesc.toLowerCase()).toContain("matching name");
+		expect(nameDesc.toLowerCase()).toContain("resume mode");
 	});
 
 	test("name param describes windowReuse: never semantics", () => {
 		const schema = buildParams(REUSE_NEVER);
 		const nameDesc = (schema.properties.name as { description?: string }).description ?? "";
-		expect(nameDesc.toLowerCase()).toContain("new window");
+		expect(nameDesc.toLowerCase()).toContain("fresh mode every run creates a new pane");
 	});
 });
 

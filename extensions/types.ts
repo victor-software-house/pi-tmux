@@ -3,6 +3,7 @@ export type AttachLayout = "split-vertical" | "tab" | "split-horizontal";
 export type WindowReuse = "last" | "named" | "never";
 export type AutoFocus = "always" | "never";
 export type CompletionDelivery = "steer" | "followUp" | "nextTurn";
+export type ShellMode = "fresh" | "resume";
 
 export interface TmuxSettings {
 	autoAttach: AutoAttachMode;
@@ -11,6 +12,7 @@ export interface TmuxSettings {
 	maxWindows: number;
 	windowReuse: WindowReuse;
 	autoFocus: AutoFocus;
+	defaultShellMode: ShellMode;
 	completionDelivery: CompletionDelivery;
 	completionTriggerTurn: boolean;
 }
@@ -37,6 +39,7 @@ export interface TmuxInput {
 	silenceBackoffFactor?: number;
 	silenceBackoffCap?: number;
 	window?: number | string;
+	shellMode?: ShellMode;
 	attach?: boolean;
 	mode?: string;
 }

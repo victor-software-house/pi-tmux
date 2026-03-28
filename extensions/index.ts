@@ -8,7 +8,7 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
-import type { AttachLayout, SilenceConfig } from "./types.js";
+import type { AttachLayout, ShellMode, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
 import { resolveProjectRoot, deriveSessionName } from "./session.js";
 import { hasAttachedPane } from "./terminal.js";
@@ -77,6 +77,7 @@ export default function (pi: ExtensionAPI) {
 						return toToolResult({ ok: false, message: "Error: 'command' is required." });
 					}
 
+					const shellMode = (params.shellMode as ShellMode | undefined) ?? currentSettings.defaultShellMode;
 					const result = actionRun(session, {
 						command: params.command,
 						name: params.name,
@@ -85,6 +86,8 @@ export default function (pi: ExtensionAPI) {
 						maxWindows: currentSettings.maxWindows,
 						autoFocus: currentSettings.autoFocus,
 						defaultLayout: currentSettings.defaultLayout,
+						shellMode,
+						target: params.window,
 					});
 					if (!result.ok) return toToolResult(result);
 

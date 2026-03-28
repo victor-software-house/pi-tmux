@@ -12,7 +12,7 @@
  * /tmux hsplit    Attach as horizontal split
  */
 import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
-import type { AutoAttachMode, AttachLayout, AutoFocus, CompletionDelivery, TmuxSettings, WindowReuse } from "./types.js";
+import type { AutoAttachMode, AttachLayout, AutoFocus, CompletionDelivery, ShellMode, TmuxSettings, WindowReuse } from "./types.js";
 import {
 	saveSettings,
 	getConfigPath,
@@ -21,6 +21,7 @@ import {
 	WINDOW_REUSE_VALUES,
 	AUTO_FOCUS_VALUES,
 	COMPLETION_DELIVERY_VALUES,
+	SHELL_MODE_VALUES,
 	MAX_WINDOWS_RANGE,
 } from "./settings.js";
 import { resolveProjectRoot, deriveSessionName, listWindows } from "./session.js";
@@ -212,6 +213,8 @@ function applySettingChange(id: string, newValue: string): void {
 		currentSettings.windowReuse = newValue;
 	} else if (id === "autoFocus" && isAutoFocus(newValue)) {
 		currentSettings.autoFocus = newValue;
+	} else if (id === "defaultShellMode" && isShellMode(newValue)) {
+		currentSettings.defaultShellMode = newValue;
 	} else if (id === "completionDelivery" && isCompletionDelivery(newValue)) {
 		currentSettings.completionDelivery = newValue;
 	} else if (id === "completionTriggerTurn") {
@@ -239,14 +242,18 @@ function isCompletionDelivery(value: string): value is CompletionDelivery {
 	return COMPLETION_DELIVERY_VALUES.includes(value as CompletionDelivery);
 }
 
+function isShellMode(value: string): value is ShellMode {
+	return SHELL_MODE_VALUES.includes(value as ShellMode);
+}
+
 // ---------------------------------------------------------------------------
 // Dynamic descriptions — lookup tables keyed by current value
 // ---------------------------------------------------------------------------
 
 const AUTO_ATTACH_DESCRIPTIONS: Record<string, string> = {
-	never: "Never auto-attach; attach action and params removed from the tool schema",
-	"session-create": "Auto-attach when a new session is created; model can also request attach: true",
-	always: "Auto-attach on every run; model can also request attach: true",
+	never: "Never auto-attach; attach action is removed from the tool schema",
+	"session-create": "Auto-attach when a new session is created",
+	always: "Auto-attach on every run",
 };
 
 const LAYOUT_DESCRIPTIONS: Record<string, string> = {
@@ -273,22 +280,31 @@ function muteDescription(): string {
 }
 
 function maxWindowsDescription(): string {
-	return `Model can open up to ${String(currentSettings.maxWindows)} tmux windows`;
+	return `Model can keep up to ${String(currentSettings.maxWindows)} managed tmux panes`;
 }
 
 const WINDOW_REUSE_DESCRIPTIONS: Record<string, string> = {
-	last: "Reuse the last idle window when no name given; reuse matching named window otherwise",
-	named: "Only reuse a window when a matching name is provided; always create new when unnamed",
-	never: "Always create a new window for every run command",
+	last: "In fresh mode, reuse the last idle pane when no name is given; reuse a matching named pane otherwise",
+	named: "In fresh mode, only reuse a pane when a matching name is provided; always create new when unnamed",
+	never: "Always create a new pane for fresh-shell runs",
 };
 
 const AUTO_FOCUS_DESCRIPTIONS: Record<string, string> = {
-	always: "Switch attached terminal to the target window on every run",
-	never: "Leave the active window unchanged when running commands",
+	always: "Show or focus the target pane/window on every run",
+	never: "Leave the current visible pane/window unchanged when running commands",
 };
 
 function autoFocusDescription(): string {
 	return AUTO_FOCUS_DESCRIPTIONS[currentSettings.autoFocus] ?? "";
+}
+
+const DEFAULT_SHELL_MODE_DESCRIPTIONS: Record<string, string> = {
+	fresh: "Runs commands in a fresh shell by default; use resume only when shell continuity is intentional",
+	resume: "Sends commands into the existing pane shell by default; use fresh when a clean shell is required",
+};
+
+function defaultShellModeDescription(): string {
+	return DEFAULT_SHELL_MODE_DESCRIPTIONS[currentSettings.defaultShellMode] ?? "";
 }
 
 const COMPLETION_DELIVERY_DESCRIPTIONS: Record<string, string> = {
@@ -340,6 +356,9 @@ function refreshDescriptions(items: MutableItem[]): void {
 			case "autoFocus":
 				item.description = autoFocusDescription();
 				break;
+			case "defaultShellMode":
+				item.description = defaultShellModeDescription();
+				break;
 			case "completionDelivery":
 				item.description = completionDeliveryDescription();
 				break;
@@ -389,10 +408,17 @@ function buildSettingItems(maxValues: string[]): MutableItem[] & { id: string; l
 		},
 		{
 			id: "autoFocus",
-			label: "Auto-focus window on run",
+			label: "Auto-show pane on run",
 			description: autoFocusDescription(),
 			currentValue: currentSettings.autoFocus,
 			values: [...AUTO_FOCUS_VALUES],
+		},
+		{
+			id: "defaultShellMode",
+			label: "Default shell continuity",
+			description: defaultShellModeDescription(),
+			currentValue: currentSettings.defaultShellMode,
+			values: [...SHELL_MODE_VALUES],
 		},
 		{
 			id: "completionDelivery",

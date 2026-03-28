@@ -5,10 +5,10 @@
  * and the command's handler() are thin wrappers that format results for their
  * respective interfaces.
  */
-import type { AttachLayout, AutoFocus, WindowReuse } from "./types.js";
-import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape, commandSession, ensureStagingSession, ensureViewPane, createStagingWindow, swapViewPane, respawnStagingWindow, deriveStagingName, listManagedPanes, markManagedPane, setManagedPaneTitle, getPaneId } from "./session.js";
+import type { AttachLayout, AutoFocus, ShellMode, WindowReuse } from "./types.js";
+import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape, commandSession, ensureStagingSession, ensureViewPane, createStagingWindow, swapViewPane, respawnStagingWindow, deriveStagingName, listManagedPanes, markManagedPane, setManagedPaneTitle, getPaneId, resolveManagedPane, getPaneLocation } from "./session.js";
 import { attachToSession, closeAttachedSessions, hasAttachedPane } from "./terminal.js";
-import { sendCommand, createWindowWithCommand, startCommandInFirstWindow, clearSilenceForWindow, trackCompletionByPane } from "./signals.js";
+import { sendCommand, sendCommandToPane, createWindowWithCommand, startCommandInFirstWindow, clearSilenceForWindow, trackCompletionByPane } from "./signals.js";
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -39,6 +39,8 @@ export interface RunOpts {
 	maxWindows: number;
 	autoFocus: AutoFocus;
 	defaultLayout: string;
+	shellMode: ShellMode;
+	target?: number | string;
 }
 
 export function actionRun(session: string, opts: RunOpts): ActionResult {
@@ -52,6 +54,36 @@ export function actionRun(session: string, opts: RunOpts): ActionResult {
 		ensureViewPane(session, opts.cwd, opts.defaultLayout);
 
 		const managedPanes = listManagedPanes(session);
+		const visiblePane = managedPanes.find((pane) => pane.visible);
+
+		if (opts.shellMode === "resume") {
+			const target = opts.target ?? opts.name;
+			const pane = target !== undefined ? resolveManagedPane(session, target) : visiblePane;
+			if (!pane) {
+				return { ok: false, message: target === undefined ? "Error: No managed pane to resume." : `Error: No pane '${target}'.` };
+			}
+			sendCommandToPane(pane.paneId, opts.command);
+			const location = getPaneLocation(pane.paneId);
+			const shouldShow = opts.autoFocus === "always";
+			if (shouldShow && location?.session === staging) {
+				swapViewPane(session, staging, location.windowIndex);
+			}
+			const visible = shouldShow ? true : pane.visible;
+			return {
+				ok: true,
+				message: `Resumed pane ${pane.paneId} — ${pane.title}`,
+				details: {
+					session,
+					paneId: pane.paneId,
+					windowName: pane.title,
+					created: false,
+					reused: true,
+					lifecycle: "resume-existing",
+					visible,
+				},
+			};
+		}
+
 		const reusablePanes = managedPanes
 			.filter((pane) => pane.session === staging && pane.idle)
 			.sort((a, b) => b.windowIndex - a.windowIndex);
@@ -91,13 +123,13 @@ export function actionRun(session: string, opts: RunOpts): ActionResult {
 		}
 		if (paneId) {
 			setManagedPaneTitle(paneId, windowName);
+			sendCommandToPane(paneId, opts.command);
 		}
 
-		// Send command to the managed pane before swap.
-		sendCommand(staging, stagingIdx, opts.command);
-
-		// Swap into view pane (atomic, no flash)
-		swapViewPane(session, staging, stagingIdx);
+		const shouldShow = opts.autoFocus === "always";
+		if (shouldShow) {
+			swapViewPane(session, staging, stagingIdx);
+		}
 
 		const verb = lifecycle === "fresh-created" ? "Started fresh pane" : "Respawned pane";
 		return {
@@ -111,7 +143,7 @@ export function actionRun(session: string, opts: RunOpts): ActionResult {
 				created: lifecycle === "fresh-created",
 				reused: lifecycle === "fresh-respawned",
 				lifecycle,
-				visible: true,
+				visible: shouldShow,
 			},
 		};
 	}
@@ -122,6 +154,28 @@ export function actionRun(session: string, opts: RunOpts): ActionResult {
 	const alive = isSessionAlive(session);
 	let windowIndex: number;
 	let reused = false;
+
+	if (opts.shellMode === "resume") {
+		if (!alive) {
+			return { ok: false, message: `Error: No active session '${session}' to resume.` };
+		}
+		const windows = listWindows(session);
+		const resumeTarget = opts.target ?? opts.name;
+		const activeWindow = windows.find((window) => window.active)?.index;
+		const idx = resumeTarget !== undefined ? resolveWindow(session, resumeTarget) : activeWindow;
+		if (idx === undefined) {
+			return { ok: false, message: resumeTarget === undefined ? "Error: No active window to resume." : `Error: No window '${resumeTarget}' in session ${session}.` };
+		}
+		sendCommand(session, idx, opts.command);
+		if (opts.autoFocus === "always") {
+			tryRun(`tmux select-window -t ${session}:${idx}`);
+		}
+		return {
+			ok: true,
+			message: `Resumed window :${idx} — ${windows.find((window) => window.index === idx)?.title ?? windowName}`,
+			details: { session, windowIndex: idx, windowName, created: false, reused: true, lifecycle: "resume-existing", visible: opts.autoFocus === "always" },
+		};
+	}
 
 	if (!alive) {
 		run(`tmux new-session -d -s ${session} -c "${opts.cwd}"`);
