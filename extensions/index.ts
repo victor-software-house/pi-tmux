@@ -97,18 +97,12 @@ export default function (pi: ExtensionAPI) {
 				tr(`tmux kill-session -t ${q(tmuxSession)} 2>/dev/null`);
 				r(`tmux new-session -d -s ${q(tmuxSession)} -c ${q(root)} ${q(piCmd)}`);
 
-				// Auto-attach: wait for shell prompt (pi exited), then send tmux -CC attach
-				if (piSessionId) {
-					const { spawn } = await import("child_process");
-					const sid = piSessionId;
-					const attachCmd = `tmux -CC attach -t ${q(tmuxSession)}`;
-					// get-prompt blocks until shell prompt appears (pi has exited)
-					const script = `it2api get-prompt ${sid} >/dev/null 2>&1 && it2api send-text --session-id ${sid} "${attachCmd}\n"`;
-					const child = spawn("bash", ["-c", script], {
-						detached: true,
-						stdio: "ignore",
-					});
-					child.unref();
+				// Open a new iTerm tab attached to the tmux session via CC mode
+				const { execSync: ex } = await import("child_process");
+				try {
+					ex(`it2api create-tab --command "tmux -CC attach -t ${q(tmuxSession)}"`, { stdio: "ignore" });
+				} catch {
+					// iTerm2 not available — user must attach manually
 				}
 
 				ctx.ui.notify("Promoting session into tmux...", "info");
