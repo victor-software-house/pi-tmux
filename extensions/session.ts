@@ -63,7 +63,7 @@ export function resolveWindow(sessionName: string, target: number | string): num
 export function listWindows(sessionName: string): WindowInfo[] {
 	const raw = tryRun(`tmux list-windows -t ${sessionName} -F "#{window_index}\t#{window_name}\t#{window_active}"`);
 	if (!raw) return [];
-	return raw.split("\n").map((line) => {
+	const windows = raw.split("\n").map((line) => {
 		const parts = line.split("\t");
 		return {
 			index: parseInt(parts[0] ?? "0", 10),
@@ -71,6 +71,9 @@ export function listWindows(sessionName: string): WindowInfo[] {
 			active: parts[2] === "1",
 		};
 	});
+	// Inside tmux: window 0 is pi itself — never touch it.
+	if (process.env.TMUX) return windows.filter((w) => w.index !== 0);
+	return windows;
 }
 
 /** Capture scrollback from one or all windows. Returns formatted output. */
