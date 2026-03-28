@@ -1,4 +1,4 @@
-import { describe, expect, test, mock, beforeEach } from "bun:test";
+import { describe, expect, test, mock, beforeEach, afterEach } from "bun:test";
 
 // Ensure tests run as if outside tmux regardless of the host environment
 delete process.env.TMUX;
@@ -191,6 +191,103 @@ describe("actionRun()", () => {
 
 		expect(result.ok).toBe(true);
 		expect(result.message).toContain("my-server");
+	});
+});
+
+describe("tmux mode", () => {
+	beforeEach(() => {
+		execSyncMock.mockReset();
+		process.env.TMUX = "cc";
+	});
+
+	afterEach(() => {
+		delete process.env.TMUX;
+	});
+
+	test("resume sends to the visible managed pane by default", async () => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
+			if (cmd.includes("has-session -t test-abc")) return "ok\n";
+			if (cmd.includes("has-session -t test-abc-stg")) return "ok\n";
+			if (cmd.includes("list-panes -t test-abc:0 -F \"#{pane_index} #{pane_id}\"")) return "0 %1\n1 %42\n";
+			if (cmd.includes("list-panes -t test-abc -F \"#{pane_id}\t#{session_name}")) return "%42\ttest-abc\t0\t1\t1\tzsh\t4242\t1\ttest-abc\tbuild\n";
+			if (cmd.includes("list-panes -t test-abc-stg -F \"#{pane_id}\t#{session_name}")) return "%51\ttest-abc-stg\t2\t0\t0\tzsh\t5151\t1\ttest-abc\tlogs\n";
+			if (cmd.includes("pgrep -P 4242") || cmd.includes("pgrep -P 5151")) throw new Error("no children");
+			if (cmd.includes("send-keys -t %42")) return "\n";
+			return "\n";
+		});
+
+		const result = await actionRun("test-abc", {
+			command: "npm test",
+			cwd: "/tmp/project",
+			windowReuse: "last",
+			maxWindows: 10,
+			autoFocus: "never",
+			defaultLayout: "split-vertical",
+			shellMode: "resume",
+		});
+
+		expect(result.ok).toBe(true);
+		expect(result.message).toContain("Resumed pane %42");
+		expect(result.ok && result.details?.lifecycle).toBe("resume-existing");
+		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("send-keys -t %42"))).toBe(true);
+		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("swap-pane"))).toBe(false);
+	});
+
+	test("focus swaps an offscreen managed pane into view by pane identity", () => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
+			if (cmd.includes("has-session -t test-abc")) return "ok\n";
+			if (cmd.includes("has-session -t test-abc-stg")) return "ok\n";
+			if (cmd.includes("list-panes -t test-abc -F \"#{pane_id}\t#{session_name}")) return "%42\ttest-abc\t0\t1\t1\tzsh\t4242\t1\ttest-abc\tbuild\n";
+			if (cmd.includes("list-panes -t test-abc-stg -F \"#{pane_id}\t#{session_name}")) return "%51\ttest-abc-stg\t2\t0\t0\tzsh\t5151\t1\ttest-abc\tlogs\n";
+			if (cmd.includes("pgrep -P 4242") || cmd.includes("pgrep -P 5151")) throw new Error("no children");
+			if (cmd.includes("display -p -t %51 \"#{session_name}\t#{window_index}\t#{pane_index}\"")) return "test-abc-stg\t2\t0\n";
+			if (cmd.includes("swap-pane -d -s test-abc:0.1 -t test-abc-stg:2.0")) return "\n";
+			return "\n";
+		});
+
+		const result = actionFocus("test-abc", "logs");
+		expect(result.ok).toBe(true);
+		expect(result.message).toContain("Focused pane %51");
+		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("swap-pane -d -s test-abc:0.1 -t test-abc-stg:2.0"))).toBe(true);
+	});
+
+	test("peek targets the managed pane instead of the staging slot", () => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
+			if (cmd.includes("has-session -t test-abc")) return "ok\n";
+			if (cmd.includes("has-session -t test-abc-stg")) return "ok\n";
+			if (cmd.includes("list-panes -t test-abc -F \"#{pane_id}\t#{session_name}")) return "%42\ttest-abc\t0\t1\t1\tzsh\t4242\t1\ttest-abc\tbuild\n";
+			if (cmd.includes("list-panes -t test-abc-stg -F \"#{pane_id}\t#{session_name}")) return "%51\ttest-abc-stg\t2\t0\t0\tzsh\t5151\t1\ttest-abc\tlogs\n";
+			if (cmd.includes("pgrep -P 4242") || cmd.includes("pgrep -P 5151")) throw new Error("no children");
+			if (cmd.includes("capture-pane -t %51")) return "captured logs\n";
+			return "\n";
+		});
+
+		const result = actionPeek("test-abc", "logs");
+		expect(result.ok).toBe(true);
+		expect(result.message).toContain("captured logs");
+		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("capture-pane -t %51"))).toBe(true);
+	});
+
+	test("list reports managed pane visibility and state", () => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
+			if (cmd.includes("has-session -t test-abc")) return "ok\n";
+			if (cmd.includes("has-session -t test-abc-stg")) return "ok\n";
+			if (cmd.includes("list-panes -t test-abc -F \"#{pane_id}\t#{session_name}")) return "%42\ttest-abc\t0\t1\t1\tzsh\t4242\t1\ttest-abc\tbuild\n";
+			if (cmd.includes("list-panes -t test-abc-stg -F \"#{pane_id}\t#{session_name}")) return "%51\ttest-abc-stg\t2\t0\t0\tnode\t5151\t1\ttest-abc\tlogs\n";
+			if (cmd.includes("pgrep -P 4242")) throw new Error("no children");
+			if (cmd.includes("pgrep -P 5151")) return "5152\n";
+			return "\n";
+		});
+
+		const result = actionList("test-abc");
+		expect(result.ok).toBe(true);
+		expect(result.message).toContain("managed pane(s)");
+		expect(result.message).toContain("%42  build  (visible, idle");
+		expect(result.message).toContain("%51  logs  (offscreen, running");
 	});
 });
 
