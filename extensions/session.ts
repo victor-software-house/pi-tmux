@@ -60,10 +60,22 @@ export function resolveWindow(sessionName: string, target: number | string): num
 }
 
 // ---------------------------------------------------------------------------
-// Tmux mode: staging session + view pane
+// Tmux mode: non-CC command creation + CC view pane
 // ---------------------------------------------------------------------------
 
-/** Staging session name — command windows created here, no CC involvement, no flash. */
+/**
+ * Local name for the separate tmux session where command windows are created.
+ *
+ * Background from the iTerm2/tmux CC experiments:
+ * - creating a new tmux window inside the CC-attached session flashes because
+ *   iTerm2 briefly renders a new tab for `%window-add`
+ * - creating the window in a different tmux session that is not attached to CC
+ *   does not flash
+ * - later, `swap-pane` can move that pane into the visible split of the CC
+ *   session with no tab creation and no observed flash
+ *
+ * "staging" is just a local debugging label for that non-CC session.
+ */
 export function deriveStagingName(session: string): string {
 	return `${session}-stg`;
 }
@@ -113,8 +125,18 @@ export function createStagingWindow(staging: string, cwd: string, name: string):
 }
 
 /**
- * Swap the CC view pane with a staging window pane.
- * Atomic — no new window created, no tab flash, no layout change.
+ * Swap the visible command pane in the CC session with a pane from the
+ * non-CC staging session.
+ *
+ * This preserves the behaviour discovered in manual testing:
+ * - the command window is born outside the CC-attached session
+ * - `swap-pane` changes what is visible in pane 1 of window 0
+ * - no new CC window/tab is created during the switch
+ * - the pane shown in the CC split behaves like the kind of native CC pane the
+ *   operator wants while it is resident there
+ *
+ * We intentionally use `swap-pane` rather than break/join or hidden-window
+ * tricks because those earlier approaches either flashed or disturbed layout.
  */
 export function swapViewPane(session: string, staging: string, stagingIdx: number): void {
 	run(`tmux swap-pane -d -s ${session}:0.1 -t ${staging}:${stagingIdx}.0`);

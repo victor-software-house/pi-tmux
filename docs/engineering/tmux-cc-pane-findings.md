@@ -149,6 +149,136 @@ The extension should preserve these properties:
 - the visible command area stays as one stable split inside the CC session
 - switching uses `swap-pane`
 - completion tracking should prefer pane identity over assumptions about window visibility
+- agent-facing behaviour should expose enough lifecycle information for correct reasoning without exploding into overly granular commands
+
+## Additional design decisions
+
+### Distinguish shell continuity from pane visibility
+
+We want the agent to be able to reason about two separate concerns:
+
+- **visibility**: whether a pane is shown in the CC view or left offscreen
+- **shell continuity**: whether the next command runs in a fresh shell or in an existing shell state
+
+Those are different choices and should not be conflated.
+
+Implication:
+
+- the extension should let the agent choose between something like **fresh shell** and **resume existing shell** behaviour
+- the extension should also make clear in responses whether a pane was freshly created, respawned, resumed, or merely swapped into view
+
+### Keep the control surface compact
+
+We do not want to solve this by introducing a large number of tiny operator commands.
+
+Instead, the guiding direction is:
+
+- keep the main tool and command surface compact
+- let a small number of higher-level actions accept behaviour-shaping options
+- prefer a cohesive model over many narrow verbs
+
+So the decision is:
+
+- **fewer actions, richer intent/configuration** is preferred over many highly granular actions
+
+### Allow user-level customization of display behaviour
+
+Some behaviours should remain user-configurable rather than hardcoded into agent actions.
+
+Example:
+
+- whether sending a command to a pane should automatically focus/show that pane in the CC view
+
+This is separate from shell continuity and should be treated as a policy or preference layer.
+
+Implication:
+
+- the extension should support user-level configuration for display/focus behaviour
+- agent actions should respect that policy unless the action explicitly asks for different behaviour
+
+Current example policy area:
+
+- auto-focus or auto-show when dispatching a command to a pane
+
+### Agent-visible lifecycle should stay understandable
+
+The agent should not have to infer invisible state from tmux internals.
+
+So responses and internal design should preserve a simple mental model such as:
+
+- fresh pane or reused pane
+- fresh shell or resumed shell
+- visible now or parked offscreen
+- currently running or idle
+
+The exact API shape can evolve, but those distinctions should remain legible.
+
+## New discovery: shell-readiness matters after `respawn-pane -k`
+
+We also found a separate issue unrelated to CC pane swapping itself.
+
+When reusing a pane with `respawn-pane -k`, sending the next command too early can hit an in-between shell startup state. In the current local setup, we observed a short transition that looked roughly like this:
+
+- empty pane
+- temporary prompt line like `> ~`
+- stable prompt line like `➜  ~`
+
+Sending the command before the prompt had fully settled could produce visible junk or partial prompt artifacts when scrolling back.
+
+### What improved the result
+
+A readiness heuristic worked much better than a fixed sleep.
+
+The first local version matched prompt shapes such as `> ~` and `➜  ~`, but we do not want to treat those glyphs as the real rule.
+
+### Registered decision
+
+The current direction is:
+
+- do not rely on prompt glyph matching as the main readiness mechanism
+- do not rely on a blind fixed sleep
+- prefer a bounded **quiescence** check instead
+
+Current target shape:
+
+- poll pane state at a short interval, for example `20ms`
+- consider the pane eligible only after a shell is present and the cursor is non-zero
+- build a small state signature from generic pane properties such as:
+  - `pane_current_command`
+  - cursor position
+  - last visible lines
+- treat the shell as ready once that signature stops changing for a short quiet window
+- cap the wait with a hard timeout so command dispatch stays fast even if the shell never settles in a clean way
+
+Current working numbers from the discussion:
+
+- quiet window around `120–160ms`
+- hard timeout around `300ms`
+
+The exact numbers may evolve, but the important current decision is that the wait must stay bounded and short.
+
+The important portable rule is:
+
+- **wait for short-lived visual quiescence, not for a specific prompt glyph**
+
+In the local experiments this produced a much cleaner result than fixed sleeps or glyph checks.
+
+### Important caution
+
+This should still be treated as an implementation direction, not a universal shell contract.
+
+Why:
+
+- shell startup output varies by shell, prompt engine, plugins, and integration layers
+- some environments may redraw more than once before settling
+- some environments may barely redraw at all
+- some environments may never present a perfectly stable prompt before the timeout
+
+So the important takeaway is:
+
+- **do not assume a pane is ready immediately after `respawn-pane -k`**
+- prefer a bounded readiness check over a blind fixed delay
+- prefer generic state stability over prompt-specific text matching
 
 ## Things we still should treat as observations, not laws
 
@@ -165,6 +295,7 @@ Not yet something we should state as a hard universal rule:
 - exactly how iTerm2 internally models the swapped pane
 - whether every tmux/iTerm2 version behaves identically
 - whether the pane permanently changes status or only behaves this way while resident in the CC session
+- whether the shell-readiness transition we saw after `respawn-pane -k` generalises beyond the current shell and prompt setup
 
 ## Command shapes we tested
 
@@ -199,6 +330,8 @@ Switch to another one later:
 ```bash
 tmux swap-pane -d -s <cc-session>:0.1 -t <non-cc-session>:<other-window>.0
 ```
+
+If reusing a pane via `respawn-pane -k`, wait for shell readiness before sending the next command. A fixed sleep worked only as a crude probe; bounded quiescence polling produced cleaner results.
 
 ## Short version
 

@@ -164,11 +164,12 @@ export function actionAttach(
 ): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 
-	// In tmux mode the view pane is always visible — no attach needed.
-	// If a specific window is requested, swap it into the view pane.
+	// In tmux mode, attach means ensuring the visible CC split exists.
+	// If a specific window is requested, prepare the split first, then swap it in.
 	if (process.env.TMUX) {
+		ensureViewPane(session, cwd, opts.layout);
 		if (opts.window !== undefined) return actionFocus(session, opts.window);
-		return { ok: true, message: "View pane is already visible." };
+		return { ok: true, message: "View pane ready." };
 	}
 
 	const targetIdx = opts.window !== undefined ? resolveWindow(session, opts.window) : undefined;
@@ -220,7 +221,7 @@ export function actionClose(session: string, target: number | string): ActionRes
 		const idx = resolveWindow(staging, target) ?? (typeof target === "number" ? target : undefined);
 		if (idx === undefined) return { ok: false, message: `No window '${target}'.` };
 		tryRun(`tmux kill-window -t ${staging}:${idx}`);
-		const remaining = listWindows(session).length;
+		const remaining = listWindows(staging).length;
 		return { ok: true, message: `Closed :${idx}. ${remaining} window(s) remain.`, details: { session, window: idx } };
 	}
 
