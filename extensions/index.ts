@@ -97,10 +97,14 @@ export default function (pi: ExtensionAPI) {
 				tr(`tmux kill-session -t ${q(tmuxSession)} 2>/dev/null`);
 				r(`tmux new-session -d -s ${q(tmuxSession)} -c ${q(root)} ${q(piCmd)}`);
 
-				// Open a new iTerm tab attached to the tmux session via CC mode
+				// Open a new iTerm tab: close old tab once pi exits, then attach via CC mode
 				const { execSync: ex } = await import("child_process");
+				const sid = piSessionId;
+				const closeOld = sid
+					? `while ! it2api get-prompt ${sid} 2>/dev/null | grep -q working_directory; do :; done; it2api send-text ${sid} 'exit\n'; `
+					: "";
 				try {
-					ex(`it2api create-tab --command "tmux -CC attach -t ${q(tmuxSession)}"`, { stdio: "ignore" });
+					ex(`it2api create-tab --command "${closeOld}tmux -CC attach -t ${q(tmuxSession)}"`, { stdio: "ignore" });
 				} catch {
 					// iTerm2 not available — user must attach manually
 				}
