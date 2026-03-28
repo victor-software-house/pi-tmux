@@ -1,17 +1,91 @@
 /**
- * Terminal attach — iTerm2, Terminal.app, kitty, ghostty, WezTerm, nested tmux.
- * Tracks attached iTerm sessions for cleanup on kill.
+ * Terminal attach — open views of the tool's tmux session.
+ *
+ * Primary mode (inside tmux / CC mode):
+ *   Uses link-window and join-pane to bring tool windows into pi's session.
+ *   No nesting, no hacks. Native iTerm2 tabs and splits via CC integration.
+ *
+ * Legacy mode (outside tmux):
+ *   Falls back to it2api, osascript, or terminal-specific APIs.
+ *   Deprecated — use /tmux-promote to move pi into tmux first.
  */
 import type { AttachLayout, AttachOptions } from "./types.js";
 import { run, tryRun, resolveProjectRoot, deriveSessionName, isSessionAlive, tmuxEscape } from "./session.js";
 import { loadSettings } from "./settings.js";
+
+// ---------------------------------------------------------------------------
+// Primary: tmux-native attach (link-window / join-pane)
+// ---------------------------------------------------------------------------
+
+function getPiSession(): string | null {
+	const raw = tryRun("tmux display-message -p '#{session_name}'");
+	return raw?.trim() ?? null;
+}
+
+function openViaTmux(session: string, mode: AttachLayout, tmuxWindow?: number): string {
+	const piSession = getPiSession();
+	if (!piSession) return "Cannot determine current tmux session.";
+
+	const srcWindow = tmuxWindow ?? 0;
+
+	if (mode === "split-vertical" || mode === "split-horizontal") {
+		const flag = mode === "split-vertical" ? "-h" : "-v";
+		const result = tryRun(`tmux join-pane ${flag} -s ${session}:${srcWindow} -t ${piSession}`);
+		if (result === null) {
+			return `Failed to join pane from ${session}:${srcWindow}.`;
+		}
+		return `Opened ${mode.replace("split-", "")} split from ${session}:${srcWindow}.`;
+	}
+
+	// Tab: link the tool window into pi's session
+	const result = tryRun(`tmux link-window -s ${session}:${srcWindow} -t ${piSession}`);
+	if (result === null) {
+		return `Failed to link window from ${session}:${srcWindow}.`;
+	}
+	return `Linked ${session}:${srcWindow} as tab in ${piSession}.`;
+}
+
+// ---------------------------------------------------------------------------
+// Attached pane detection
+// ---------------------------------------------------------------------------
+
+/**
+ * Inside tmux: always false — the CC client doesn't count as a visible pane.
+ * Outside tmux: checks tmux list-clients for real terminal attachments.
+ */
+export function hasAttachedPane(tmuxSession: string): boolean {
+	if (process.env.TMUX) return false;
+
+	const clients = tryRun(`tmux list-clients -t ${tmuxSession} -F "#{client_tty}" 2>/dev/null`);
+	return clients !== null && clients.trim().length > 0;
+}
+
+// ---------------------------------------------------------------------------
+// Session cleanup
+// ---------------------------------------------------------------------------
+
+export function closeAttachedSessions(tmuxSession: string): void {
+	if (process.env.TMUX) return;
+
+	const panes = legacyAttachedPanes.get(tmuxSession);
+	if (!panes || !isIt2apiAvailable()) return;
+	for (const paneId of panes) {
+		tryRun(`${IT2API} send-text "${paneId}" "\x03"`);
+		tryRun(`${IT2API} send-text "${paneId}" "exit\n"`);
+	}
+	legacyAttachedPanes.delete(tmuxSession);
+}
+
+// ---------------------------------------------------------------------------
+// Legacy: outside-tmux fallback (deprecated — use /tmux-promote)
+// ---------------------------------------------------------------------------
 
 const IT2API = "/Applications/iTerm.app/Contents/Resources/utilities/it2api";
 const IT2API_INSTALL_HINT = "Enable: iTerm2 > Settings > General > Magic > Enable Python API. Then: uv pip install --system iterm2";
 
 let _it2apiAvailable: boolean | null = null;
 
-export function isIt2apiAvailable(): boolean {
+function isIt2apiAvailable(): boolean {
 	if (_it2apiAvailable === null) {
 		_it2apiAvailable = tryRun(`${IT2API} list-sessions 2>/dev/null`) !== null;
 	}
@@ -34,73 +108,24 @@ function getActiveiTermWindow(): string | null {
 	return match?.[1] ?? null;
 }
 
-// ---------------------------------------------------------------------------
-// Attached pane tracking
-// ---------------------------------------------------------------------------
+const legacyAttachedPanes = new Map<string, Set<string>>();
 
-const attachedPanes = new Map<string, Set<string>>();
-
-function trackPane(tmuxSession: string, itermId: string): void {
-	let panes = attachedPanes.get(tmuxSession);
+function trackLegacyPane(tmuxSession: string, itermId: string): void {
+	let panes = legacyAttachedPanes.get(tmuxSession);
 	if (!panes) {
 		panes = new Set();
-		attachedPanes.set(tmuxSession, panes);
+		legacyAttachedPanes.set(tmuxSession, panes);
 	}
 	panes.add(itermId);
 }
 
-/** Check whether any terminal client is attached to this tmux session. */
-export function hasAttachedPane(tmuxSession: string): boolean {
-	// When pi runs inside tmux (CC mode), the CC control client is always
-	// attached.  That doesn't count as a user-visible pane — splits are
-	// native tmux operations and should always be allowed.
-	if (process.env.TMUX) return false;
-
-	const clients = tryRun(`tmux list-clients -t ${tmuxSession} -F "#{client_tty}" 2>/dev/null`);
-	return clients !== null && clients.trim().length > 0;
-}
-
-export function closeAttachedSessions(tmuxSession: string): void {
-	const panes = attachedPanes.get(tmuxSession);
-	if (!panes || !isIt2apiAvailable()) return;
-	for (const paneId of panes) {
-		tryRun(`${IT2API} send-text "${paneId}" "\x03"`);
-		tryRun(`${IT2API} send-text "${paneId}" "exit\n"`);
-	}
-	attachedPanes.delete(tmuxSession);
-}
-
-// ---------------------------------------------------------------------------
-// Open terminal pane/tab attached to a tmux session
-// ---------------------------------------------------------------------------
-
-export function openTerminalTab(opts: AttachOptions): string {
+function openLegacy(opts: AttachOptions, mode: AttachLayout): string {
 	const { session, tmuxWindow } = opts;
-	const settings = loadSettings();
-	const mode = opts.mode ?? settings.defaultLayout;
 	const term = process.env.TERM_PROGRAM ?? "";
+	const attachCmd = `tmux attach -t ${session}`;
 
 	if (tmuxWindow !== undefined) {
 		tryRun(`tmux select-window -t ${session}:${tmuxWindow}`);
-	}
-
-	const attachCmd = `tmux attach -t ${session}`;
-
-	if (process.env.TMUX) {
-		// Inside tmux (CC mode): native splits/windows via tmux.
-		// Unset TMUX to allow nested attach to the tool session.
-		const target = tmuxWindow !== undefined ? `${session}:${tmuxWindow}` : session;
-		const cmd = `TMUX='' exec tmux attach -t ${target}`;
-		if (mode === "split-vertical") {
-			run(`tmux split-window -h "${tmuxEscape(cmd)}"`);
-			return `Opened vertical split attached to ${session}.`;
-		} else if (mode === "split-horizontal") {
-			run(`tmux split-window -v "${tmuxEscape(cmd)}"`);
-			return `Opened horizontal split attached to ${session}.`;
-		} else {
-			run(`tmux new-window "${tmuxEscape(cmd)}"`);
-			return `Opened tab attached to ${session}.`;
-		}
 	}
 
 	switch (term) {
@@ -115,7 +140,7 @@ export function openTerminalTab(opts: AttachOptions): string {
 					const result = tryRun(`${IT2API} split-pane${flag} "${targetSession}"`);
 					const newId = result?.match(/id=([0-9A-F-]{36})/)?.[1];
 					if (newId) {
-						trackPane(session, newId);
+						trackLegacyPane(session, newId);
 						tryRun(`${IT2API} send-text "${newId}" "exec ${tmuxEscape(attachCmd)}\n"`);
 						return `Opened iTerm2 ${label} attached to ${session}.`;
 					}
@@ -125,14 +150,14 @@ export function openTerminalTab(opts: AttachOptions): string {
 					const result = tryRun(`${IT2API} create-tab${windowFlag}`);
 					const newId = result?.match(/id=([0-9A-F-]{36})/)?.[1];
 					if (newId) {
-						trackPane(session, newId);
+						trackLegacyPane(session, newId);
 						tryRun(`${IT2API} send-text "${newId}" "exec ${tmuxEscape(attachCmd)}\n"`);
 						return `Opened iTerm2 tab attached to ${session}.`;
 					}
 				}
 			}
 
-			const warning = `\x1b[33m[pi-tmux] iTerm2 Python API not available. Using legacy attach (no native integration).\n${IT2API_INSTALL_HINT}\x1b[0m`;
+			const warning = `\x1b[33m[pi-tmux] iTerm2 Python API not available. Using legacy attach.\n${IT2API_INSTALL_HINT}\x1b[0m`;
 			if (isSplit) {
 				const direction = mode === "split-vertical" ? "vertically" : "horizontally";
 				run(`osascript -e '
@@ -181,6 +206,21 @@ export function openTerminalTab(opts: AttachOptions): string {
 		default:
 			return `No supported terminal detected. Run manually:\n  ${attachCmd}`;
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export function openTerminalTab(opts: AttachOptions): string {
+	const settings = loadSettings();
+	const mode = opts.mode ?? settings.defaultLayout;
+
+	if (process.env.TMUX) {
+		return openViaTmux(opts.session, mode, opts.tmuxWindow);
+	}
+
+	return openLegacy(opts, mode);
 }
 
 export function attachToSession(
