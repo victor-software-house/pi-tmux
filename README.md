@@ -4,6 +4,8 @@ A [pi](https://github.com/badlogic/pi) coding agent extension that manages a tmu
 
 Fork of [@romansix/pi-tmux](https://github.com/indigoviolet/pi-tmux) with split pane support for iTerm2.
 
+For the current working notes on iTerm2 tmux CC mode, pane swapping, and the non-CC session workaround, see [`docs/engineering/tmux-cc-pane-findings.md`](docs/engineering/tmux-cc-pane-findings.md).
+
 ## Install
 
 ```bash
