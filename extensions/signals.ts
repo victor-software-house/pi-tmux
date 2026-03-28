@@ -225,6 +225,66 @@ export function createWindowWithCommand(
 }
 
 /**
+ * Send a command to the persistent command pane (pane 1 of window 0).
+ * Inside tmux mode only — no new windows, single tab.
+ */
+export function sendCommandToPane(paneId: string, command: string): void {
+	tryRun(`tmux send-keys -t ${paneId} -X cancel`);
+	tryRun(`tmux send-keys -t ${paneId} C-u`);
+	run(`tmux send-keys -t ${paneId} "${tmuxEscape(command)}" C-m`);
+}
+
+/**
+ * Track completion by watching a specific pane ID (tmux mode).
+ */
+export function trackCompletionByPane(
+	pi: ExtensionAPI,
+	session: string,
+	paneId: string,
+	label: string,
+	deliverAs: CompletionDelivery = "followUp",
+	triggerTurn = true,
+): void {
+	const key = `pane:${paneId}`;
+	const existing = completionTrackers.get(key);
+	if (existing) clearInterval(existing.timer);
+
+	const currentCmd = tryRun(`tmux display -p -t ${paneId} "#{pane_current_command}"`);
+	let seenNonShell = !IDLE_SHELLS.has(currentCmd ?? "");
+	let ticks = 0;
+
+	const timer = setInterval(() => {
+		ticks++;
+		const cmd = tryRun(`tmux display -p -t ${paneId} "#{pane_current_command}"`);
+
+		if (cmd === null) {
+			clearInterval(timer);
+			completionTrackers.delete(key);
+			return;
+		}
+		if (!IDLE_SHELLS.has(cmd)) { seenNonShell = true; return; }
+		if (!seenNonShell && ticks < 5) return;
+
+		clearInterval(timer);
+		completionTrackers.delete(key);
+
+		const raw = tryRun(`tmux capture-pane -t ${paneId} -p -J`) ?? "";
+		const trimmed = filterPaneOutput(raw);
+
+		pi.sendMessage(
+			{
+				customType: "tmux-completion",
+				content: `tmux "${label}" finished.\n\n\`\`\`\n${trimmed}\n\`\`\``,
+				display: true,
+			},
+			{ triggerTurn, deliverAs },
+		);
+	}, POLL_INTERVAL_MS);
+
+	completionTrackers.set(key, { timer, session, windowIndex: -1, initialCommand: currentCmd });
+}
+
+/**
  * Send a command in window 0 of a freshly created session.
  */
 export function startCommandInFirstWindow(

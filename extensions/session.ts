@@ -60,6 +60,23 @@ export function resolveWindow(sessionName: string, target: number | string): num
 }
 
 /**
+ * When inside tmux: ensure there is exactly one command pane (pane 1) in window 0.
+ * Creates a vertical or horizontal split if it doesn't exist.
+ * Returns the pane ID of the command pane.
+ */
+export function ensureCommandPane(session: string, cwd: string, layout: string): string {
+	const panes = tryRun(`tmux list-panes -t ${session}:0 -F "#{pane_index} #{pane_id}"`);
+	const existing = panes?.split("\n").find((l) => l.startsWith("1 "));
+	if (existing) {
+		return existing.split(" ")[1] ?? "";
+	}
+	// Create the split using the configured layout
+	const flag = layout === "split-horizontal" ? "-v" : "-h";
+	const raw = run(`tmux split-window ${flag} -t ${session}:0 -c "${cwd}" -P -F "#{pane_id}"`);
+	return raw.trim();
+}
+
+/**
  * Get the window index of pi's own pane (promoted mode).
  * Uses PI_PANE_ID stored in the tmux session environment at promote time.
  * Falls back to window 0 if not found.

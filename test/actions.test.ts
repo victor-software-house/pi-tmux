@@ -84,7 +84,7 @@ describe("actionRun()", () => {
 			cwd: "/tmp/project",
 			windowReuse: "last",
 			maxWindows: 10,
-			autoFocus: "never",
+			autoFocus: "never", defaultLayout: "split-vertical",
 		});
 
 		expect(result.ok).toBe(true);
@@ -115,7 +115,7 @@ describe("actionRun()", () => {
 			cwd: "/tmp/project",
 			windowReuse: "last",
 			maxWindows: 10,
-			autoFocus: "never",
+			autoFocus: "never", defaultLayout: "split-vertical",
 		});
 
 		expect(result.ok).toBe(true);
@@ -140,7 +140,7 @@ describe("actionRun()", () => {
 			cwd: "/tmp/project",
 			windowReuse: "last",
 			maxWindows: 2,
-			autoFocus: "never",
+			autoFocus: "never", defaultLayout: "split-vertical",
 		});
 
 		expect(result.ok).toBe(false);
@@ -165,7 +165,7 @@ describe("actionRun()", () => {
 			cwd: "/tmp/project",
 			windowReuse: "never",
 			maxWindows: 10,
-			autoFocus: "never",
+			autoFocus: "never", defaultLayout: "split-vertical",
 		});
 
 		expect(result.ok).toBe(true);
@@ -189,7 +189,7 @@ describe("actionRun()", () => {
 			cwd: "/tmp/project",
 			windowReuse: "last",
 			maxWindows: 10,
-			autoFocus: "never",
+			autoFocus: "never", defaultLayout: "split-vertical",
 		});
 
 		expect(result.ok).toBe(true);

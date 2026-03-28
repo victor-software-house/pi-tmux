@@ -12,7 +12,7 @@ import type { AttachLayout, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
 import { resolveProjectRoot, deriveSessionName } from "./session.js";
 import { hasAttachedPane } from "./terminal.js";
-import { trackCompletion, registerSilence, stopAll } from "./signals.js";
+import { trackCompletion, trackCompletionByPane, registerSilence, stopAll } from "./signals.js";
 import { actionRun, actionAttach, actionFocus, actionClose, actionPeek, actionList, actionKill, actionMute } from "./actions.js";
 import { buildParams, buildDescription, buildPromptSnippet, buildPromptGuidelines } from "./tool-builder.js";
 import { registerTmuxCommand, initCommandSettings } from "./command.js";
@@ -84,34 +84,40 @@ export default function (pi: ExtensionAPI) {
 						windowReuse: currentSettings.windowReuse,
 						maxWindows: currentSettings.maxWindows,
 						autoFocus: currentSettings.autoFocus,
+						defaultLayout: currentSettings.defaultLayout,
 					});
 					if (!result.ok) return toToolResult(result);
 
-					const { windowIndex, created } = result.details as Record<string, unknown>;
-					const winIdx = windowIndex as number;
+					const { windowIndex, paneId, windowName, created } = result.details as Record<string, unknown>;
 
-					trackCompletion(pi, session, winIdx, currentSettings.completionDelivery, currentSettings.completionTriggerTurn);
+					if (paneId) {
+						// Tmux mode: track by pane ID
+						trackCompletionByPane(pi, session, paneId as string, windowName as string, currentSettings.completionDelivery, currentSettings.completionTriggerTurn);
+					} else {
+						const winIdx = windowIndex as number;
+						trackCompletion(pi, session, winIdx, currentSettings.completionDelivery, currentSettings.completionTriggerTurn);
+					}
 
 					const timeout = params.silenceTimeout ?? 0;
-					if (timeout > 0) {
+					if (timeout > 0 && !paneId) {
 						const silence: SilenceConfig = {
 							timeout,
 							factor: params.silenceBackoffFactor ?? 1.5,
 							cap: params.silenceBackoffCap ?? 300,
 						};
-						registerSilence(session, winIdx, silence);
+						registerSilence(session, windowIndex as number, silence);
 					}
 
-					// Auto-attach (setting-driven)
+					// Auto-attach (setting-driven, no-op in tmux mode — pane already visible)
 					let message = result.message;
-					if (flags.canAttach && !hasAttachedPane(session)) {
+					if (!paneId && flags.canAttach && !hasAttachedPane(session)) {
 						const autoFires =
 							currentSettings.autoAttach === "always" ||
 							(currentSettings.autoAttach === "session-create" && created === true);
 						if (autoFires) {
 							const attach = actionAttach(session, ctx.cwd, {
 								layout: currentSettings.defaultLayout,
-								window: winIdx,
+								window: windowIndex as number,
 							});
 							message += "\n" + attach.message;
 						}

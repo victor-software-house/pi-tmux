@@ -6,9 +6,9 @@
  * respective interfaces.
  */
 import type { AttachLayout, AutoFocus, WindowReuse } from "./types.js";
-import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape, getPiWindowIndex } from "./session.js";
+import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape, getPiWindowIndex, ensureCommandPane } from "./session.js";
 import { attachToSession, closeAttachedSessions, hasAttachedPane } from "./terminal.js";
-import { sendCommand, createWindowWithCommand, startCommandInFirstWindow, clearSilenceForWindow } from "./signals.js";
+import { sendCommand, createWindowWithCommand, startCommandInFirstWindow, clearSilenceForWindow, sendCommandToPane, trackCompletionByPane } from "./signals.js";
 
 // ---------------------------------------------------------------------------
 // Result types
@@ -38,12 +38,33 @@ export interface RunOpts {
 	windowReuse: WindowReuse;
 	maxWindows: number;
 	autoFocus: AutoFocus;
+	defaultLayout: string;
 }
 
 export function actionRun(session: string, opts: RunOpts): ActionResult {
 	const windowName = opts.name ? opts.name.slice(0, 30) : deriveWindowName(opts.command);
 	const alive = isSessionAlive(session);
 
+	// -------------------------------------------------------------------
+	// Tmux mode: single tab, command pane only (pane 1 of window 0)
+	// -------------------------------------------------------------------
+	if (process.env.TMUX) {
+		if (!alive) {
+			// Should not happen in promoted mode, but handle gracefully
+			return { ok: false, message: "No active tmux session. Run /tmux-promote first." };
+		}
+		const paneId = ensureCommandPane(session, opts.cwd, opts.defaultLayout);
+		sendCommandToPane(paneId, opts.command);
+		return {
+			ok: true,
+			message: `Running in command pane: ${windowName}`,
+			details: { session, paneId, windowName, created: false, reused: false },
+		};
+	}
+
+	// -------------------------------------------------------------------
+	// Legacy mode: window-per-command
+	// -------------------------------------------------------------------
 	let windowIndex: number;
 	let reused = false;
 
