@@ -37,7 +37,7 @@ export function initCommandSettings(settings: TmuxSettings): void {
 	currentSettings = settings;
 }
 
-export function registerTmuxCommand(pi: ExtensionAPI, getPiSessionId: () => string | null): void {
+export function registerTmuxCommand(pi: ExtensionAPI): void {
 	pi.registerCommand("tmux", {
 		description: "Manage tmux session and settings",
 		getArgumentCompletions(prefix) {
@@ -103,7 +103,7 @@ export function registerTmuxCommand(pi: ExtensionAPI, getPiSessionId: () => stri
 			if (sub in attachModes) {
 				const layout = attachModes[sub];
 				if (!layout) return;
-				notify(ctx, actionAttach(session, ctx.cwd, { layout, window: windowArg, piSessionId: getPiSessionId() }));
+				notify(ctx, actionAttach(session, ctx.cwd, { layout, window: windowArg }));
 				return;
 			}
 

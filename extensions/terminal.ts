@@ -2,15 +2,11 @@
  * Terminal attach — open views of the tool's tmux session.
  *
  * Primary: link-window / join-pane when pi runs inside tmux (CC mode).
- * Legacy fallback in terminal-legacy.ts for outside-tmux usage.
+ * Legacy fallback loaded lazily only when outside tmux.
  */
 import type { AttachLayout, AttachOptions } from "./types.js";
 import { tryRun, resolveProjectRoot, deriveSessionName, isSessionAlive } from "./session.js";
 import { loadSettings } from "./settings.js";
-import { openLegacy, hasLegacyAttachedPane, closeLegacyAttachedSessions } from "./terminal-legacy.js";
-
-// Re-export for index.ts (legacy, only used outside tmux)
-export { getActiveiTermSession } from "./terminal-legacy.js";
 
 // ---------------------------------------------------------------------------
 // Primary: tmux-native attach (link-window / join-pane)
@@ -45,19 +41,46 @@ function openViaTmux(session: string, mode: AttachLayout, tmuxWindow?: number): 
 }
 
 // ---------------------------------------------------------------------------
+// Lazy legacy loader (only imported outside tmux)
+// ---------------------------------------------------------------------------
+
+let _legacy: typeof import("./terminal-legacy.js") | null = null;
+
+async function getLegacy() {
+	if (!_legacy) {
+		_legacy = await import("./terminal-legacy.js");
+	}
+	return _legacy;
+}
+
+function getLegacySync() {
+	if (!_legacy) {
+		// Synchronous require fallback — terminal-legacy.js is always bundled
+		_legacy = require("./terminal-legacy.js");
+	}
+	return _legacy!;
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 /** Is a user-visible terminal attached to this tool session? */
 export function hasAttachedPane(tmuxSession: string): boolean {
 	if (process.env.TMUX) return false;
-	return hasLegacyAttachedPane(tmuxSession);
+	return getLegacySync().hasLegacyAttachedPane(tmuxSession);
 }
 
 /** Clean up attached terminal panes on session kill. */
 export function closeAttachedSessions(tmuxSession: string): void {
 	if (process.env.TMUX) return;
-	closeLegacyAttachedSessions(tmuxSession);
+	getLegacySync().closeLegacyAttachedSessions(tmuxSession);
+}
+
+/** Re-export for promote.ts (legacy only) */
+export function getActiveiTermSession(): string | null {
+	if (process.env.TMUX) return null;
+	return getLegacySync().getActiveiTermSession();
 }
 
 /** Open a terminal view of the tool session. */
@@ -69,13 +92,13 @@ export function openTerminalTab(opts: AttachOptions): string {
 		return openViaTmux(opts.session, mode, opts.tmuxWindow);
 	}
 
-	return openLegacy(opts, mode);
+	return getLegacySync().openLegacy(opts, mode);
 }
 
 /** Attach to the project's tmux session. */
 export function attachToSession(
 	cwd: string,
-	opts?: { mode?: AttachLayout; tmuxWindow?: number; piSessionId?: string | null },
+	opts?: { mode?: AttachLayout; tmuxWindow?: number },
 ): string {
 	const root = resolveProjectRoot(cwd);
 	const session = deriveSessionName(root);
@@ -86,7 +109,6 @@ export function attachToSession(
 			session,
 			mode: opts?.mode,
 			tmuxWindow: opts?.tmuxWindow,
-			piSessionId: opts?.piSessionId,
 		});
 	} catch (e: unknown) {
 		const msg = e instanceof Error ? e.message : String(e);

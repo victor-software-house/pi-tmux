@@ -102,7 +102,7 @@ export function actionRun(session: string, opts: RunOpts): ActionResult {
 export function actionAttach(
 	session: string,
 	cwd: string,
-	opts: { layout: AttachLayout; window?: number | string; piSessionId?: string | null },
+	opts: { layout: AttachLayout; window?: number | string },
 ): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 
@@ -116,7 +116,7 @@ export function actionAttach(
 		return { ok: true, message: "Already attached." };
 	}
 
-	const msg = attachToSession(cwd, { mode: opts.layout, tmuxWindow: targetIdx, piSessionId: opts.piSessionId });
+	const msg = attachToSession(cwd, { mode: opts.layout, tmuxWindow: targetIdx });
 	const failed = msg.startsWith("Failed") || msg.startsWith("No");
 	return failed ? { ok: false, message: msg } : { ok: true, message: msg };
 }

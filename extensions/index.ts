@@ -3,6 +3,7 @@
  *
  * Tool: tmux (run/attach/focus/close/peek/list/kill/mute — gated by settings)
  * Commands: /tmux (settings), /tmux list|cat|clear|kill|attach|tab|split|hsplit
+ *           /tmux-promote (legacy, only outside tmux)
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
@@ -10,11 +11,12 @@ import { Text } from "@mariozechner/pi-tui";
 import type { AttachLayout, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
 import { resolveProjectRoot, deriveSessionName } from "./session.js";
-import { getActiveiTermSession, hasAttachedPane } from "./terminal.js";
+import { hasAttachedPane } from "./terminal.js";
 import { trackCompletion, registerSilence, stopAll } from "./signals.js";
 import { actionRun, actionAttach, actionFocus, actionClose, actionPeek, actionList, actionKill, actionMute } from "./actions.js";
 import { buildParams, buildDescription, buildPromptSnippet, buildPromptGuidelines } from "./tool-builder.js";
 import { registerTmuxCommand, initCommandSettings } from "./command.js";
+import { registerPromoteCommand } from "./promote.js";
 
 function toToolResult(result: { ok: boolean; message: string; details?: Record<string, unknown> }) {
 	return {
@@ -25,18 +27,10 @@ function toToolResult(result: { ok: boolean; message: string; details?: Record<s
 
 export default function (pi: ExtensionAPI) {
 	let currentSettings = loadSettings();
-	let piSessionId: string | null = null;
-
-	function capturePiSession(): void {
-		if (process.env.TERM_PROGRAM === "iTerm.app") {
-			piSessionId = getActiveiTermSession();
-		}
-	}
 
 	initCommandSettings(currentSettings);
 
-	pi.on("session_start", async (_event, _ctx) => {
-		capturePiSession();
+	pi.on("session_start", async () => {
 		currentSettings = loadSettings();
 		initCommandSettings(currentSettings);
 	});
@@ -60,61 +54,8 @@ export default function (pi: ExtensionAPI) {
 		stopAll();
 	});
 
-	registerTmuxCommand(pi, () => piSessionId);
-
-	// /tmux-promote — only registered when pi is NOT inside tmux
-	if (!process.env.TMUX) {
-		pi.registerCommand("tmux-promote", {
-			description: "Re-launch this pi session inside tmux for native scrolling and splits",
-			handler: async (_args, ctx) => {
-				const sessionFile = ctx.sessionManager.getSessionFile();
-				if (!sessionFile) {
-					ctx.ui.notify("Cannot promote: no active session file.", "error");
-					return;
-				}
-
-				const root = resolveProjectRoot(ctx.cwd);
-				const tmuxSession = deriveSessionName(root);
-
-				// Build pi command from runtime APIs — no process.argv guessing
-				const args: string[] = ["pi"];
-				args.push("--session", sessionFile);
-
-				const model = ctx.model;
-				if (model) {
-					args.push("--model", `${model.provider}/${model.id}`);
-				}
-
-				const thinking = pi.getThinkingLevel();
-				if (thinking !== "off") {
-					args.push("--thinking", thinking);
-				}
-
-				const q = (s: string) => (/[\s'"\\$]/.test(s) ? `'${s.replace(/'/g, "'\\''")}'` : s);
-				const piCmd = args.map(q).join(" ");
-
-				const { tryRun: tr, run: r } = await import("./session.js");
-				tr(`tmux kill-session -t ${q(tmuxSession)} 2>/dev/null`);
-				r(`tmux new-session -d -s ${q(tmuxSession)} -c ${q(root)} ${q(piCmd)}`);
-
-				// Open a new iTerm tab: close old tab once pi exits, then attach via CC mode
-				const { execSync: ex } = await import("child_process");
-				const sid = piSessionId;
-				const closeOld = sid
-					? `while ! it2api get-prompt ${sid} 2>/dev/null | grep -q working_directory; do :; done; it2api send-text ${sid} 'exit\\n'; `
-					: "";
-				const script = `${closeOld}tmux -CC attach -t ${q(tmuxSession)}`;
-				try {
-					ex(`it2api create-tab --command "/bin/bash -l -c '${script.replace(/'/g, "'\\''")}'"`);
-				} catch {
-					// iTerm2 not available — user must attach manually
-				}
-
-				ctx.ui.notify("Promoting session into tmux...", "info");
-				ctx.shutdown();
-			},
-		});
-	}
+	registerTmuxCommand(pi);
+	registerPromoteCommand(pi);
 
 	const flags = getFlags(currentSettings);
 
@@ -149,7 +90,6 @@ export default function (pi: ExtensionAPI) {
 					const { windowIndex, created } = result.details as Record<string, unknown>;
 					const winIdx = windowIndex as number;
 
-					// Pi-specific side effects
 					trackCompletion(pi, session, winIdx, currentSettings.completionDelivery, currentSettings.completionTriggerTurn);
 
 					const timeout = params.silenceTimeout ?? 0;
@@ -162,7 +102,7 @@ export default function (pi: ExtensionAPI) {
 						registerSilence(session, winIdx, silence);
 					}
 
-					// Auto-attach (setting-driven, not per-call)
+					// Auto-attach (setting-driven)
 					let message = result.message;
 					if (flags.canAttach && !hasAttachedPane(session)) {
 						const autoFires =
@@ -172,7 +112,6 @@ export default function (pi: ExtensionAPI) {
 							const attach = actionAttach(session, ctx.cwd, {
 								layout: currentSettings.defaultLayout,
 								window: winIdx,
-								piSessionId,
 							});
 							message += "\n" + attach.message;
 						}
@@ -189,7 +128,7 @@ export default function (pi: ExtensionAPI) {
 						return toToolResult({ ok: false, message: "Error: attach is disabled in settings. Use /tmux attach manually." });
 					}
 					const layout = (params.mode as AttachLayout | undefined) ?? currentSettings.defaultLayout;
-					return toToolResult(actionAttach(session, ctx.cwd, { layout, window: params.window, piSessionId }));
+					return toToolResult(actionAttach(session, ctx.cwd, { layout, window: params.window }));
 				}
 
 				case "focus": {
