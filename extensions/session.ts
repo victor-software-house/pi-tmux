@@ -113,24 +113,6 @@ export function createStagingWindow(staging: string, cwd: string, name: string):
 }
 
 /**
- * Get the staging window index currently shown in the CC view pane.
- * Looks up which staging pane is in window 0 pane 1 of the CC session.
- */
-export function getViewStagingIndex(session: string, staging: string): number | null {
-	const paneId = tryRun(
-		`tmux list-panes -t ${session}:0 -F "#{pane_index} #{pane_id}"`,
-	)?.split("\n").find((l) => l.startsWith("1 "))?.split(" ")[1];
-	if (!paneId) return null;
-	const raw = tryRun(`tmux list-panes -t ${staging} -a -F "#{pane_id}\t#{window_index}"`);
-	if (!raw) return null;
-	for (const line of raw.split("\n")) {
-		const parts = line.split("\t");
-		if (parts[0] === paneId) return parseInt(parts[1] ?? "0", 10);
-	}
-	return null;
-}
-
-/**
  * Swap the CC view pane with a staging window pane.
  * Atomic — no new window created, no tab flash, no layout change.
  */
@@ -145,26 +127,18 @@ export function respawnStagingWindow(staging: string, windowIdx: number, cwd: st
 	run(`tmux respawn-pane -k -t ${staging}:${windowIdx}.0 -c "${cwd}"`);
 }
 
+
 /**
- * Get the window index of pi's own pane (promoted mode).
- * Uses PI_PANE_ID stored in the tmux session environment at promote time.
- * Falls back to window 0 if not found.
+ * Return the session where command windows live.
+ * In tmux (CC) mode: the staging session. Outside tmux: the session itself.
  */
-export function getPiWindowIndex(sessionName: string): number | null {
-	if (!process.env.TMUX) return null;
-	const paneId = tryRun(`tmux show-environment -t ${sessionName} PI_PANE_ID 2>/dev/null`)
-		?.replace("PI_PANE_ID=", "")
-		.trim();
-	if (!paneId) return 0; // fallback
-	const idx = tryRun(`tmux display-message -t ${paneId} -p "#{window_index}" 2>/dev/null`);
-	return idx !== null ? parseInt(idx.trim(), 10) : 0;
+export function commandSession(session: string): string {
+	return process.env.TMUX ? deriveStagingName(session) : session;
 }
 
-/** List all windows in a tmux session. Returns empty array if session doesn't exist. */
+/** List all windows in a tmux session. Operates on the given session name as-is. */
 export function listWindows(sessionName: string): WindowInfo[] {
-	// In tmux mode, command windows live in the staging session
-	const target = process.env.TMUX ? deriveStagingName(sessionName) : sessionName;
-	const raw = tryRun(`tmux list-windows -t ${target} -F "#{window_index}\t#{window_name}\t#{window_active}"`);
+	const raw = tryRun(`tmux list-windows -t ${sessionName} -F "#{window_index}\t#{window_name}\t#{window_active}"`);
 	if (!raw) return [];
 	return raw.split("\n").map((line) => {
 		const parts = line.split("\t");

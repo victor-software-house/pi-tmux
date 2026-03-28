@@ -88,7 +88,7 @@ export default function (pi: ExtensionAPI) {
 					});
 					if (!result.ok) return toToolResult(result);
 
-					const { windowIndex, paneId, stagingIdx, windowName, created } = result.details as Record<string, unknown>;
+					const { windowIndex, paneId, windowName, created } = result.details as Record<string, unknown>;
 
 					if (paneId) {
 						// Tmux mode: track by pane ID (works even when pane swaps between sessions)
@@ -98,7 +98,7 @@ export default function (pi: ExtensionAPI) {
 						trackCompletion(pi, session, winIdx, currentSettings.completionDelivery, currentSettings.completionTriggerTurn);
 					}
 
-						const timeout = params.silenceTimeout ?? 0;
+							const timeout = params.silenceTimeout ?? 0;
 					if (timeout > 0 && !paneId) {
 						const silence: SilenceConfig = {
 							timeout,
