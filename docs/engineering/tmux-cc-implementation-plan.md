@@ -190,3 +190,135 @@ If implementation needs to be phased, the recommended order is:
 4. expose fresh/resume/show semantics cleanly
 5. align settings and user policy
 6. expand tests and UX validation
+
+## Immediate code sequence
+
+This is the recommended implementation order in the current codebase.
+
+### Phase 1: Introduce pane-centric metadata and lookup primitives
+
+Primary files:
+
+- `extensions/session.ts`
+- `extensions/types.ts`
+
+Immediate goals:
+
+- add tmux-mode helpers that identify managed panes directly rather than by staging window index
+- add pane query helpers for:
+  - pane ID
+  - current session/window/pane location
+  - running vs idle state
+  - visible-in-CC vs parked-offscreen state
+- add a small pane metadata layer so a managed command keeps its logical identity even after swaps
+
+Likely direction:
+
+- store per-pane metadata using tmux pane user options such as `@pi_*`
+- query managed panes by pane ID and metadata rather than trusting window name or window slot
+
+This phase fixes the main architectural mismatch without changing the visible command surface yet.
+
+### Phase 2: Rebuild tmux-mode `run` around pane identity
+
+Primary file:
+
+- `extensions/actions.ts`
+
+Immediate goals:
+
+- keep the existing non-CC creation + CC swap architecture
+- change tmux-mode reuse selection to operate on managed panes, not on staging window names alone
+- make the tmux-mode `run` result explicitly report whether it:
+  - created a fresh pane
+  - respawned a reusable pane for a fresh shell
+  - resumed an existing shell
+  - swapped an already running pane into view
+
+Important constraint:
+
+- do not regress the zero-flash path that already works
+
+### Phase 3: Add shell-continuity semantics to the main action model
+
+Primary files:
+
+- `extensions/types.ts`
+- `extensions/settings.ts`
+- `extensions/tool-builder.ts`
+- `extensions/index.ts`
+- `extensions/command.ts`
+
+Immediate goals:
+
+- introduce a compact way for the agent to express shell intent on `run`
+- keep this as part of a compact high-level API instead of splitting into many tiny commands
+- keep user policy separate from agent intent
+
+Current design direction:
+
+- `run` gets an explicit shell continuity choice such as fresh vs resume
+- settings provide the default policy when the agent does not specify one
+- display policy such as auto-show/auto-focus remains user-configurable
+
+### Phase 4: Add bounded readiness handling for reused fresh-shell panes
+
+Primary files:
+
+- `extensions/session.ts`
+- `extensions/actions.ts`
+
+Immediate goals:
+
+- after `respawn-pane -k`, wait for a short bounded quiescence condition before sending the command
+- use generic pane-state stability instead of prompt glyph matching
+- keep the wait short and bounded
+
+Implementation note:
+
+- this phase may justify making the tmux-mode `run` path async if that produces a cleaner wait implementation than a blocking polling loop
+
+### Phase 5: Re-audit lifecycle actions against the pane model
+
+Primary files:
+
+- `extensions/actions.ts`
+- `extensions/session.ts`
+- `extensions/index.ts`
+
+Immediate goals:
+
+- make `list` describe managed panes, not just staging windows
+- make `focus` target the intended pane identity
+- make `peek` capture the intended pane output regardless of current parking slot
+- make `close`, `clear`, and `mute` operate on meaningful managed-pane targets
+
+This is where the user and agent mental model must become obviously correct.
+
+### Phase 6: Update tests to match tmux-first behaviour
+
+Primary files:
+
+- `test/actions.test.ts`
+- `test/session.test.ts`
+- possibly new tmux-mode-specific test files
+
+Immediate goals:
+
+- add tmux-mode tests for pane-centric selection and reporting
+- cover fresh vs resume semantics
+- cover readiness-gated reuse
+- cover list/focus/peek/close behaviour after pane swaps
+
+### Phase 7: Do another manual UX validation pass
+
+Primary targets:
+
+- current repo
+- at least one other repo with a different shell startup profile
+
+Immediate goals:
+
+- verify zero-flash switching still holds
+- verify reused-pane dispatch looks clean
+- verify agent-visible messages accurately describe what happened
