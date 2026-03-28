@@ -1,7 +1,8 @@
 import { describe, expect, test, mock, beforeEach } from "bun:test";
 
 // Mock execSync before importing actions
-const execSyncMock = mock(() => "");
+// biome-ignore: test mock needs flexible signature
+const execSyncMock = mock((_cmd?: string) => "");
 mock.module("node:child_process", () => ({
 	execSync: execSyncMock,
 }));
@@ -28,7 +29,8 @@ import { hasAttachedPane } from "../extensions/terminal.js";
 
 // Helper: configure execSync responses by command pattern
 function mockCommands(responses: Record<string, string>): void {
-	execSyncMock.mockImplementation((cmd: string) => {
+	execSyncMock.mockImplementation((_cmd?: string) => {
+		const cmd = _cmd ?? "";
 		for (const [pattern, response] of Object.entries(responses)) {
 			if (cmd.includes(pattern)) return response;
 		}
@@ -37,7 +39,7 @@ function mockCommands(responses: Record<string, string>): void {
 }
 
 // Helper: standard "alive session with 2 windows" mock
-function mockAliveSession(session: string): void {
+function mockAliveSession(_session: string): void {
 	mockCommands({
 		"has-session": "ok\n",
 		"list-windows": `0\tdev-server\t0\n1\ttest-suite\t1\n`,
@@ -65,7 +67,8 @@ describe("actionRun()", () => {
 
 	test("creates new session when none exists", () => {
 		let sessionCreated = false;
-		execSyncMock.mockImplementation((cmd: string) => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
 			if (cmd.includes("has-session")) throw new Error("no session");
 			if (cmd.includes("new-session")) { sessionCreated = true; return "\n"; }
 			if (cmd.includes("rename-window")) return "\n";
@@ -85,13 +88,14 @@ describe("actionRun()", () => {
 		expect(result.message).toContain("Created");
 		expect(result.message).toContain("npm start");
 		expect(sessionCreated).toBe(true);
-		expect(result.details?.created).toBe(true);
+		expect(result.ok && result.details?.created).toBe(true);
 	});
 
 	test("reuses idle window with windowReuse: last", () => {
 		let renamedWindow = false;
 		let sentKeys = false;
-		execSyncMock.mockImplementation((cmd: string) => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
 			if (cmd.includes("has-session")) return "ok\n";
 			// isWindowIdle uses list-windows with pane_current_command format
 			if (cmd.includes("list-windows") && cmd.includes("pane_current_command"))
@@ -115,11 +119,12 @@ describe("actionRun()", () => {
 		expect(result.message).toContain("Reused");
 		expect(renamedWindow).toBe(true);
 		expect(sentKeys).toBe(true);
-		expect(result.details?.reused).toBe(true);
+		expect(result.ok && result.details?.reused).toBe(true);
 	});
 
 	test("rejects when maxWindows reached", () => {
-		execSyncMock.mockImplementation((cmd: string) => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
 			if (cmd.includes("has-session")) return "ok\n";
 			if (cmd.includes("list-windows")) return "0\tdev\t0\n1\ttest\t0\n";
 			// Both windows busy
@@ -141,7 +146,8 @@ describe("actionRun()", () => {
 
 	test("respects windowReuse: never", () => {
 		let createdWindow = false;
-		execSyncMock.mockImplementation((cmd: string) => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
 			if (cmd.includes("has-session")) return "ok\n";
 			if (cmd.includes("list-windows")) return "0\tdev\t0\n";
 			if (cmd.includes("pane_current_command")) return "zsh\n";
@@ -165,7 +171,8 @@ describe("actionRun()", () => {
 	});
 
 	test("uses custom name when provided", () => {
-		execSyncMock.mockImplementation((cmd: string) => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
 			if (cmd.includes("has-session")) throw new Error("no session");
 			if (cmd.includes("new-session")) return "\n";
 			if (cmd.includes("rename-window")) return "\n";
@@ -218,7 +225,8 @@ describe("actionFocus()", () => {
 
 	test("switches window on alive session", () => {
 		let selectedWindow = false;
-		execSyncMock.mockImplementation((cmd: string) => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
 			if (cmd.includes("has-session")) return "ok\n";
 			if (cmd.includes("list-windows")) return "0\tdev\t0\n1\ttest\t0\n";
 			if (cmd.includes("select-window")) { selectedWindow = true; return "\n"; }
@@ -243,7 +251,8 @@ describe("actionClose()", () => {
 
 	test("kills window and reports remaining", () => {
 		let killed = false;
-		execSyncMock.mockImplementation((cmd: string) => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
 			if (cmd.includes("has-session")) return "ok\n";
 			if (cmd.includes("list-windows")) return killed ? "1\ttest\t0\n" : "0\tdev\t0\n1\ttest\t0\n";
 			if (cmd.includes("kill-window")) { killed = true; return "\n"; }
@@ -267,7 +276,8 @@ describe("actionPeek()", () => {
 	});
 
 	test("captures output from session", () => {
-		execSyncMock.mockImplementation((cmd: string) => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
 			if (cmd.includes("has-session")) return "ok\n";
 			if (cmd.includes("list-windows")) return "0\tdev\t0\n";
 			if (cmd.includes("capture-pane")) return "hello world\n";
@@ -310,7 +320,8 @@ describe("actionKill()", () => {
 
 	test("kills session", () => {
 		let killed = false;
-		execSyncMock.mockImplementation((cmd: string) => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
 			if (cmd.includes("has-session")) return killed ? (() => { throw new Error("dead"); })() : "ok\n";
 			if (cmd.includes("kill-session")) { killed = true; return "\n"; }
 			return "\n";
@@ -333,7 +344,8 @@ describe("actionClear()", () => {
 
 	test("clears idle windows", () => {
 		let killCount = 0;
-		execSyncMock.mockImplementation((cmd: string) => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
 			if (cmd.includes("has-session")) return "ok\n";
 			if (cmd.includes("list-windows") && cmd.includes("pane_current_command"))
 				return "0\tzsh\t1234\n1\tnode\t5678\n";
@@ -351,7 +363,8 @@ describe("actionClear()", () => {
 	});
 
 	test("reports no idle windows", () => {
-		execSyncMock.mockImplementation((cmd: string) => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
 			if (cmd.includes("has-session")) return "ok\n";
 			if (cmd.includes("list-windows") && cmd.includes("pane_current_command"))
 				return "0\tnode\t1234\n";
