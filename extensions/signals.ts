@@ -200,6 +200,9 @@ export function checkSilence(pi: ExtensionAPI, session: string, windowIndex: num
  * Just the command, nothing else. History stays clean.
  */
 export function sendCommand(session: string, windowIndex: number, command: string): void {
+	// Cancel copy mode if active, clear any partial input, then send the command
+	tryRun(`tmux send-keys -t ${session}:${windowIndex} q`);
+	tryRun(`tmux send-keys -t ${session}:${windowIndex} C-c`);
 	run(`tmux send-keys -t ${session}:${windowIndex} "${tmuxEscape(command)}" C-m`);
 }
 
