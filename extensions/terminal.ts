@@ -7,9 +7,9 @@
 import type { AttachLayout, AttachOptions } from "./types.js";
 import { tryRun, resolveProjectRoot, deriveSessionName, isSessionAlive } from "./session.js";
 import { loadSettings } from "./settings.js";
-import { openLegacy, hasLegacyAttachedPane, closeLegacyAttachedSessions, getActiveiTermSession } from "./terminal-legacy.js";
+import { openLegacy, hasLegacyAttachedPane, closeLegacyAttachedSessions } from "./terminal-legacy.js";
 
-// Re-export for index.ts
+// Re-export for index.ts (legacy, only used outside tmux)
 export { getActiveiTermSession } from "./terminal-legacy.js";
 
 // ---------------------------------------------------------------------------
