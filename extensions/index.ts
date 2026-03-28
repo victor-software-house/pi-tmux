@@ -9,7 +9,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import type { AttachLayout, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
-import { tryRun, resolveProjectRoot, deriveSessionName, isSessionAlive } from "./session.js";
+import { resolveProjectRoot, deriveSessionName } from "./session.js";
 import { getActiveiTermSession, hasAttachedPane } from "./terminal.js";
 import { trackCompletion, registerSilence, stopAll } from "./signals.js";
 import { actionRun, actionAttach, actionFocus, actionClose, actionPeek, actionList, actionKill, actionMute } from "./actions.js";
