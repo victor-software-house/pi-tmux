@@ -59,6 +59,21 @@ export function resolveWindow(sessionName: string, target: number | string): num
 	return windows.find((w) => w.title === target)?.index;
 }
 
+/**
+ * Get the window index of pi's own pane (promoted mode).
+ * Uses PI_PANE_ID stored in the tmux session environment at promote time.
+ * Falls back to window 0 if not found.
+ */
+export function getPiWindowIndex(sessionName: string): number | null {
+	if (!process.env.TMUX) return null;
+	const paneId = tryRun(`tmux show-environment -t ${sessionName} PI_PANE_ID 2>/dev/null`)
+		?.replace("PI_PANE_ID=", "")
+		.trim();
+	if (!paneId) return 0; // fallback
+	const idx = tryRun(`tmux display-message -t ${paneId} -p "#{window_index}" 2>/dev/null`);
+	return idx !== null ? parseInt(idx.trim(), 10) : 0;
+}
+
 /** List all windows in a tmux session. Returns empty array if session doesn't exist. */
 export function listWindows(sessionName: string): WindowInfo[] {
 	const raw = tryRun(`tmux list-windows -t ${sessionName} -F "#{window_index}\t#{window_name}\t#{window_active}"`);
@@ -71,8 +86,11 @@ export function listWindows(sessionName: string): WindowInfo[] {
 			active: parts[2] === "1",
 		};
 	});
-	// Inside tmux: window 0 is pi itself — never touch it.
-	if (process.env.TMUX) return windows.filter((w) => w.index !== 0);
+	// Inside tmux: exclude pi's own window — it must not be touched by the tool.
+	if (process.env.TMUX) {
+		const piIdx = getPiWindowIndex(sessionName);
+		return piIdx !== null ? windows.filter((w) => w.index !== piIdx) : windows;
+	}
 	return windows;
 }
 

@@ -43,6 +43,11 @@ export function registerPromoteCommand(pi: ExtensionAPI): void {
 			const { tryRun: tr, run: r } = await import("./session.js");
 			tr(`tmux kill-session -t ${q(tmuxSession)} 2>/dev/null`);
 			r(`tmux new-session -d -s ${q(tmuxSession)} -c ${q(root)} ${q(piCmd)}`);
+			// Mark pi's pane ID in the session environment for reliable identification
+			const piPaneId = tr(`tmux display-message -t ${q(tmuxSession)}:0 -p "#{pane_id}"`);
+			if (piPaneId) {
+				tr(`tmux set-environment -t ${q(tmuxSession)} PI_PANE_ID ${piPaneId.trim()}`);
+			}
 
 			// Open new iTerm tab with CC attach, close old tab after pi exits
 			const { execSync: ex } = await import("child_process");

@@ -6,7 +6,7 @@
  * respective interfaces.
  */
 import type { AttachLayout, AutoFocus, WindowReuse } from "./types.js";
-import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape } from "./session.js";
+import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape, getPiWindowIndex } from "./session.js";
 import { attachToSession, closeAttachedSessions, hasAttachedPane } from "./terminal.js";
 import { sendCommand, createWindowWithCommand, startCommandInFirstWindow, clearSilenceForWindow } from "./signals.js";
 
@@ -144,7 +144,7 @@ export function actionClose(session: string, target: number | string): ActionRes
 
 	const idx = resolveWindow(session, target);
 	if (idx === undefined) return { ok: false, message: `No window '${target}' in session ${session}.` };
-	if (process.env.TMUX && idx === 0) return { ok: false, message: "Error: window :0 is reserved for pi and cannot be closed." };
+	if (process.env.TMUX && idx === getPiWindowIndex(session)) return { ok: false, message: `Error: window :${idx} is pi's pane and cannot be closed.` };
 
 	tryRun(`tmux kill-window -t ${session}:${idx}`);
 	const remaining = isSessionAlive(session) ? listWindows(session).length : 0;
