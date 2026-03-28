@@ -79,7 +79,8 @@ export function openTerminalTab(opts: AttachOptions): string {
 		tryRun(`tmux select-window -t ${session}:${tmuxWindow}`);
 	}
 
-	const attachCmd = `tmux attach -t ${session}`;
+	// Use CC (control channel) mode for iTerm2 — native tmux integration
+	const attachCmd = term === "iTerm.app" ? `tmux -CC attach -t ${session}` : `tmux attach -t ${session}`;
 
 	if (process.env.TMUX) {
 		if (mode === "split-vertical") {
@@ -117,7 +118,7 @@ export function openTerminalTab(opts: AttachOptions): string {
 					const newId = result?.match(/id=([0-9A-F-]{36})/)?.[1];
 					if (newId) {
 						trackPane(session, newId);
-						tryRun(`${IT2API} send-text "${newId}" "exec tmux -CC attach -t ${tmuxEscape(session)}\n"`);
+						tryRun(`${IT2API} send-text "${newId}" "exec ${tmuxEscape(attachCmd)}\n"`);
 						return `Opened iTerm2 tab attached to ${session}.`;
 					}
 				}
