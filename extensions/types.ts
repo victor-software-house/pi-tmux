@@ -54,3 +54,16 @@ export interface WindowInfo {
 	title: string;
 	active: boolean;
 }
+
+export interface ManagedPaneInfo {
+	paneId: string;
+	ownerSession: string;
+	title: string;
+	session: string;
+	windowIndex: number;
+	paneIndex: number;
+	active: boolean;
+	visible: boolean;
+	currentCommand: string;
+	idle: boolean;
+}

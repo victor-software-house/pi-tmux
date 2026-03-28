@@ -4,12 +4,15 @@
  */
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import type { WindowInfo } from "./types.js";
+import type { ManagedPaneInfo, WindowInfo } from "./types.js";
 
 /** Run a shell command synchronously, returning trimmed stdout. Throws on failure. */
 export function run(cmd: string): string {
 	return execSync(cmd, { encoding: "utf-8", timeout: 10_000 }).trim();
 }
+
+const IDLE_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", "csh"]);
+const MANAGED_PANE_MARK = "1";
 
 /** Run a shell command, returning stdout on success or null on any error. */
 export function tryRun(cmd: string): string | null {
@@ -149,6 +152,74 @@ export function respawnStagingWindow(staging: string, windowIdx: number, cwd: st
 	run(`tmux respawn-pane -k -t ${staging}:${windowIdx}.0 -c "${cwd}"`);
 }
 
+/** Mark a pane as managed by pi-tmux for a specific project session. */
+export function markManagedPane(paneId: string, ownerSession: string, title: string): void {
+	setPaneOption(paneId, "managed", MANAGED_PANE_MARK);
+	setPaneOption(paneId, "owner_session", ownerSession);
+	setPaneOption(paneId, "title", title);
+}
+
+/** Update the logical title stored on a managed pane. */
+export function setManagedPaneTitle(paneId: string, title: string): void {
+	setPaneOption(paneId, "title", title);
+}
+
+/** Read the current pane ID for a window target. Returns null if unavailable. */
+export function getPaneId(target: string): string | null {
+	return tryRun(`tmux display -p -t ${target} "#{pane_id}"`);
+}
+
+/** Return true if a command name represents an idle interactive shell. */
+export function isIdleShellCommand(command: string): boolean {
+	return IDLE_SHELLS.has(command);
+}
+
+/** Return the current tmux location of a pane. */
+export function getPaneLocation(paneId: string): { session: string; windowIndex: number; paneIndex: number } | null {
+	const raw = tryRun(`tmux display -p -t ${paneId} "#{session_name}\t#{window_index}\t#{pane_index}"`);
+	if (!raw) return null;
+	const parts = raw.split("\t");
+	const session = parts[0] ?? "";
+	const windowIndex = Number.parseInt(parts[1] ?? "", 10);
+	const paneIndex = Number.parseInt(parts[2] ?? "", 10);
+	if (!session || Number.isNaN(windowIndex) || Number.isNaN(paneIndex)) return null;
+	return { session, windowIndex, paneIndex };
+}
+
+/** List all managed panes for a project session across the CC and staging sessions. */
+export function listManagedPanes(ownerSession: string): ManagedPaneInfo[] {
+	const sessions = [ownerSession, deriveStagingName(ownerSession)].filter((name, index, all) => isSessionAlive(name) && all.indexOf(name) === index);
+	if (sessions.length === 0) return [];
+
+	const panes: ManagedPaneInfo[] = [];
+	for (const sessionName of sessions) {
+		const raw = tryRun(
+			`tmux list-panes -t ${sessionName} -F "#{pane_id}\t#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_pid}\t#{@pi_managed}\t#{@pi_owner_session}\t#{@pi_title}"`,
+		);
+		if (!raw) continue;
+		for (const line of raw.split("\n")) {
+			const pane = parseManagedPaneLine(line, ownerSession);
+			if (!pane) continue;
+			panes.push(pane);
+		}
+	}
+
+	return panes.sort((a, b) => {
+		if (a.visible !== b.visible) return a.visible ? -1 : 1;
+		if (a.session !== b.session) return a.session.localeCompare(b.session);
+		if (a.windowIndex !== b.windowIndex) return a.windowIndex - b.windowIndex;
+		return a.paneIndex - b.paneIndex;
+	});
+}
+
+/** Find one managed pane by pane ID, logical title, or current location index. */
+export function resolveManagedPane(ownerSession: string, target: number | string): ManagedPaneInfo | undefined {
+	const panes = listManagedPanes(ownerSession);
+	if (typeof target === "number") {
+		return panes.find((pane) => pane.windowIndex === target);
+	}
+	return panes.find((pane) => pane.paneId === target || pane.title === target);
+}
 
 /**
  * Return the session where command windows live.
@@ -192,18 +263,17 @@ export function captureOutput(sessionName: string, target: number | "all"): stri
  * Uses the same logic as /tmux:clear.
  */
 export function isWindowIdle(sessionName: string, windowIndex: number): boolean {
-	const idleShells = new Set(["bash", "zsh", "sh", "fish", "dash"]);
 	const raw = tryRun(
 		`tmux list-windows -t ${sessionName} -F "#{window_index}\t#{pane_current_command}\t#{pane_pid}"`,
 	);
 	if (!raw) return false;
 	for (const line of raw.split("\n")) {
 		const parts = line.split("\t");
-		const idx = parseInt(parts[0] ?? "", 10);
+		const idx = Number.parseInt(parts[0] ?? "", 10);
 		if (idx !== windowIndex) continue;
 		const cmd = parts[1] ?? "";
 		const pid = parts[2] ?? "";
-		if (!idleShells.has(cmd)) return false;
+		if (!isIdleShellCommand(cmd)) return false;
 		return !tryRun(`pgrep -P ${pid}`);
 	}
 	return false;
@@ -215,6 +285,42 @@ export function isWindowIdle(sessionName: string, windowIndex: number): boolean 
  */
 export function deriveWindowName(command: string): string {
 	return (command.trim().split(/[|;&\s]/)[0]?.split("/").pop() || "shell").slice(0, 30);
+}
+
+function setPaneOption(paneId: string, key: string, value: string): void {
+	run(`tmux set-option -p -t ${paneId} @pi_${key} "${tmuxEscape(value)}"`);
+}
+
+function paneHasChildren(pid: string): boolean {
+	return Boolean(pid) && Boolean(tryRun(`pgrep -P ${pid}`));
+}
+
+function parseManagedPaneLine(line: string, ownerSession: string): ManagedPaneInfo | null {
+	const parts = line.split("\t");
+	const paneId = parts[0] ?? "";
+	const session = parts[1] ?? "";
+	const windowIndex = Number.parseInt(parts[2] ?? "", 10);
+	const paneIndex = Number.parseInt(parts[3] ?? "", 10);
+	const active = (parts[4] ?? "") === "1";
+	const currentCommand = parts[5] ?? "";
+	const panePid = parts[6] ?? "";
+	const managed = parts[7] ?? "";
+	const paneOwnerSession = parts[8] ?? "";
+	const title = parts[9] ?? "";
+	if (managed !== MANAGED_PANE_MARK || paneOwnerSession !== ownerSession) return null;
+	if (!paneId || !session || Number.isNaN(windowIndex) || Number.isNaN(paneIndex)) return null;
+	return {
+		paneId,
+		ownerSession: paneOwnerSession,
+		title: title || paneId,
+		session,
+		windowIndex,
+		paneIndex,
+		active,
+		visible: session === ownerSession && windowIndex === 0 && paneIndex === 1,
+		currentCommand,
+		idle: isIdleShellCommand(currentCommand) && !paneHasChildren(panePid),
+	};
 }
 
 /** Escape a string for safe embedding inside a tmux send-keys double-quoted argument. */
