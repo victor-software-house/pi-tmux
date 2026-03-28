@@ -49,8 +49,7 @@ export function actionRun(session: string, opts: RunOpts): ActionResult {
 
 	if (!alive) {
 		run(`tmux new-session -d -s ${session} -c "${opts.cwd}"`);
-		// Enable mouse support for natural scrolling in terminal emulators
-		tryRun(`tmux set-option -t ${session} mouse on`);
+		tryRun(`tmux source-file ~/.config/pi-tmux/tmux.conf`);
 		startCommandInFirstWindow(session, windowName, opts.command);
 		windowIndex = 0;
 	} else {
