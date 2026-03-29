@@ -12,7 +12,7 @@
 8. **FOCUS-LEAK** — Cosmetic. Fix after the swap-pane flow is stable.
 9. **CTX-SIGNAL, SCHEMA-COMPAT, MSG-DELIVERY** — Integrations with Pi runtime APIs added in v0.63-0.64. Independent of each other and of the above items.
 
-Items 1-2 are prerequisites for everything else. Items 3-5 have ordering dependencies (noted above). Item 7 blocks final confidence in live tmux CC verification. Items 6, 8, and 9 are otherwise independent.
+Items 1-4 are done. **SWAP-SHUFFLE** (not numbered above — emerged after PANE-META) is also done: `@pi_name` pane-label identity replaced the `@pi_staging_index` two-swap workaround. Items 5+ remain. Item 7 blocks final confidence in live tmux CC verification. Items 6, 8, and 9 are otherwise independent.
 
 ## Terminology
 
@@ -35,18 +35,21 @@ Use exact tmux names everywhere. No metaphors, no vague terms.
 
 ---
 
-## Critical — fix before further feature work
+## Critical — fix before further feature work (all done)
 
-### PANE-META: Replace pane metadata with staging window queries
-The `@pi_managed` / `@pi_title` pane metadata system is broken by `swap-pane`. This blocks `list`, `peek` by name, `close`, `focus`, `resume`, and `mute`. The staging session's window names are the correct source of truth. See `docs/engineering/open-issues.md` PANE-META for full details and verification criteria.
+### ~~PANE-META~~ (done)
+Replaced pane-option metadata with staging-window-based inventory. Then further evolved into `@pi_name` pane-label identity via SWAP-SHUFFLE fix.
 
-### ~~LEGACY-GATE: Disable non-tmux mode, gate behind /tmux-promote~~ (done)
-All three phases complete:
-1. ~~Gate: runtime check on session_start, widget warning, tool returns error outside tmux~~
-2. ~~Remove: delete legacy branches from actions.ts, delete terminal.ts dispatcher~~
-3. ~~Simplify: HostTarget object replaces positional host args, dead code removed~~
+### ~~ATTACH-VERIFY~~ (done)
+View pane existence verified via tmux query before reporting attached.
+
+### ~~LEGACY-GATE~~ (done)
+All three phases complete. HostTarget object replaces positional host args. Dead code removed.
 
 Remaining from the original plan: `terminal-tmux.ts` has not been renamed to `terminal.ts` — this would break test imports and is deferred.
+
+### ~~SWAP-SHUFFLE~~ (done)
+Replaced `@pi_staging_index` two-swap return-address pattern with `@pi_name` single-swap pane-label identity. `listManagedPanes` discovers panes by `@pi_name` across staging + view. Single `swap-pane` by pane ID.
 
 ## High priority
 
@@ -59,13 +62,13 @@ Builtins like `read` and `wait` cause premature completion because `pane_current
 ### TMUX-ENV-WARN: Add tmux environment warnings on session start
 Check for jixiuf/tmux fork (`kitty-keys` option) and warn if not present. Surface as a widget or notification on session_start.
 
-### ATTACH-VERIFY: Verify attach by checking view pane existence
-`attach` trusts an in-memory flag without verifying the pane exists. See `docs/engineering/open-issues.md` ATTACH-VERIFY.
+### ~~ATTACH-VERIFY~~ (done)
+See Critical section above.
 
 ## Medium priority
 
-### HOST-MISMATCH: Map Pi's tmux host session and window to the tab Pi is actually running in
-The current host detection effectively assumes host window `0`, but manual verification proved Pi was running in a different window inside the same tmux session. Use `TMUX_PANE` as the primary source of truth for Pi's own tmux location, then use `tmux capture-pane` plus `it2api get-buffer` only as external confirmation that the operator-visible tab matches that pane. See `docs/engineering/open-issues.md` HOST-MISMATCH.
+### ~~HOST-MISMATCH~~ (done)
+Host window detected from `TMUX_PANE` at startup, threaded through all view pane operations via `HostTarget`.
 
 ### CTX-SIGNAL: Wire ctx.signal for cancellation support
 Pi 0.63.2 added `ctx.signal` to extension contexts. Currently `actionRun` ignores the signal parameter. Wire it to kill the staging pane when the user cancels a tool call mid-execution.

@@ -43,32 +43,11 @@ Fixed in three phases:
 Deleted files: `terminal.ts`, `terminal-legacy.ts`, `terminal-legacy.test.ts`.
 Deleted exports: `trackCompletion`, `sendCommand`, `createWindowWithCommand`, `startCommandInFirstWindow`, `checkSilence`, `AttachOptions`.
 
----
+### SWAP-SHUFFLE (fixed)
 
-## Active issues
+After multiple `run` + auto-focus cycles, pane contents got rotated across staging windows because `swap-pane` displaced the current view pane into the wrong staging window. `peek` and `focus` by name returned the wrong output.
 
-### SWAP-SHUFFLE: `swap-pane` displaces command panes into wrong staging windows
-
-**Status:** interim fix in place, proper fix documented
-
-**What happens:** After `run name: a`, `run name: b`, `run name: c` with auto-focus, the pane contents get rotated across staging windows. Staging window named `b` contains pane `a`'s output, `c` contains `b`'s output, etc.
-
-**Why this matters:** `peek window: b` returns the wrong command's output. The model sees incorrect data.
-
-**Root cause:** Each `swap-pane` call exchanges the view pane with a staging pane. The displaced view pane goes to whatever staging window the new pane came from — not back to its own original window. After multiple swaps, panes are in the wrong windows.
-
-**Current interim fix:** Each pane carries `@pi_staging_index` — a pane option labeling which staging window it belongs to. Before swapping a new pane into the view, the current view pane is returned to its labeled staging window first (two swaps per focus change). This works but adds complexity.
-
-**Proper fix:** Stop tracking positions entirely. Each command pane should carry a `@pi_name` pane option (e.g. `"build"`). To show a pane, find it by `@pi_name` across all panes (staging session + view pane), then swap it into the view by pane ID: `swap-pane -d -s HOST:W.1 -t %PANE_ID`. Single swap. The displaced pane goes wherever — does not matter because identity is the label on the pane, not the tmux window it sits in.
-
-This eliminates:
-- `@pi_staging_index` return-address tracking
-- two-swap return-then-fetch sequence
-- any invariant that staging window contents must match staging window names
-
-**Verification:** `run a`, `run b`, `run c`, then: `peek a` returns VERIFY-A, `peek b` returns VERIFY-B, `peek c` returns VERIFY-C.
-
----
+Fixed by replacing `@pi_staging_index` (return-address label + two-swap sequence) with `@pi_name` (logical identity label + single swap by pane ID). `listManagedPanes` now discovers panes by `@pi_name` across both the staging session and the view pane. Displaced panes from swaps are harmless — identity is the `@pi_name` label, not the tmux window position.
 
 ### HOST-PLUMBING (fixed)
 
@@ -84,6 +63,8 @@ interface HostTarget {
 One object, one parameter, impossible to partially forget. Done as part of LEGACY-GATE phase 2.
 
 ---
+
+## Active issues
 
 ### OUTPUT-TRACK: completion notifications do not report truncation
 
