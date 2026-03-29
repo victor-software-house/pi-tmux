@@ -13,7 +13,7 @@ export function run(cmd: string): string {
 }
 
 const IDLE_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", "csh"]);
-const HOME_WINDOW_OPTION = "@pi_home_window";
+const STAGING_INDEX_OPTION = "@pi_staging_index";
 
 /** Run a shell command, returning stdout on success or null on any error. */
 export function tryRun(cmd: string): string | null {
@@ -139,7 +139,7 @@ export function createStagingWindow(staging: string, cwd: string, name: string):
 	}
 	// Label the pane with its home window so it can be returned after swap-pane
 	const paneId = tryRun(`tmux display -p -t ${tmuxSessionTarget(staging)}:${idx}.0 "#{pane_id}"`);
-	if (paneId) setHomeWindow(paneId.trim(), idx);
+	if (paneId) setStagingIndex(paneId.trim(), idx);
 	return idx;
 }
 
@@ -159,15 +159,15 @@ export function createStagingWindow(staging: string, cwd: string, name: string):
  */
 /**
  * Swap a staging pane into the view. If the view already holds a pane with
- * @pi_home_window, return it to its home staging slot first (two-swap).
+ * @pi_staging_index, return it to its staging slot first (two-swap).
  */
 export function swapViewPane(session: string, staging: string, stagingIdx: number, hostWindowIndex = 0): void {
 	const viewTarget = `${tmuxSessionTarget(session)}:${hostWindowIndex}.1`;
-	const currentHome = tryRun(`tmux display -p -t ${viewTarget} "#{${HOME_WINDOW_OPTION}}"`);
-	if (currentHome && currentHome.trim()) {
-		const homeIdx = Number.parseInt(currentHome.trim(), 10);
-		if (!Number.isNaN(homeIdx)) {
-			run(`tmux swap-pane -d -s ${viewTarget} -t ${tmuxSessionTarget(staging)}:${homeIdx}.0`);
+	const currentStagingIdx = tryRun(`tmux display -p -t ${viewTarget} "#{${STAGING_INDEX_OPTION}}"`);
+	if (currentStagingIdx && currentStagingIdx.trim()) {
+		const returnIdx = Number.parseInt(currentStagingIdx.trim(), 10);
+		if (!Number.isNaN(returnIdx)) {
+			run(`tmux swap-pane -d -s ${viewTarget} -t ${tmuxSessionTarget(staging)}:${returnIdx}.0`);
 		}
 	}
 	run(`tmux swap-pane -d -s ${viewTarget} -t ${tmuxSessionTarget(staging)}:${stagingIdx}.0`);
@@ -180,12 +180,12 @@ export function respawnStagingWindow(staging: string, windowIdx: number, cwd: st
 	run(`tmux respawn-pane -k -t ${tmuxSessionTarget(staging)}:${windowIdx}.0 -c "${cwd}"`);
 	// Re-label the new pane with its home window (respawn creates a new pane ID)
 	const paneId = tryRun(`tmux display -p -t ${tmuxSessionTarget(staging)}:${windowIdx}.0 "#{pane_id}"`);
-	if (paneId) setHomeWindow(paneId.trim(), windowIdx);
+	if (paneId) setStagingIndex(paneId.trim(), windowIdx);
 }
 
-/** Label a pane with its home staging window index. Survives swap-pane. */
-export function setHomeWindow(paneId: string, windowIndex: number): void {
-	run(`tmux set-option -p -t ${paneId} ${HOME_WINDOW_OPTION} ${windowIndex}`);
+/** Label a pane with its staging window index. Survives swap-pane. */
+export function setStagingIndex(paneId: string, windowIndex: number): void {
+	run(`tmux set-option -p -t ${paneId} ${STAGING_INDEX_OPTION} ${windowIndex}`);
 }
 
 /** Read the current pane ID for a window target. Returns null if unavailable. */
@@ -230,7 +230,7 @@ function getViewPaneInfo(hostSession: string, hostWindowIndex = 0): { paneId: st
 function getVisibleStagingWindow(hostSession: string, hostWindowIndex = 0): number | undefined {
 	const viewPane = getViewPaneInfo(hostSession, hostWindowIndex);
 	if (!viewPane) return undefined;
-	const raw = tryRun(`tmux display -p -t ${viewPane.paneId} "#{${HOME_WINDOW_OPTION}}"`);
+	const raw = tryRun(`tmux display -p -t ${viewPane.paneId} "#{${STAGING_INDEX_OPTION}}"`);
 	if (!raw || !raw.trim()) return undefined;
 	const idx = Number.parseInt(raw.trim(), 10);
 	return Number.isNaN(idx) ? undefined : idx;

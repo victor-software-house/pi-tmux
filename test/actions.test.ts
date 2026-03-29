@@ -210,8 +210,8 @@ describe("tmux mode", () => {
 			if (cmd.includes("has-session -t =test-abc-stg")) return "ok\n";
 			if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index} #{pane_id}\"")) return "0 %1\n1 %42\n";
 			if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) return "0\t%1\tzsh\t1001\n1\t%42\tzsh\t4242\n";
-			if (cmd.includes("display -p -t %42 \"#{@pi_home_window}\"")) return "1\n";
-			if (cmd.includes("display -p -t =5:0.1 \"#{@pi_home_window}\"")) return "1\n";
+			if (cmd.includes("display -p -t %42 \"#{@pi_staging_index}\"")) return "1\n";
+			if (cmd.includes("display -p -t =5:0.1 \"#{@pi_staging_index}\"")) return "1\n";
 			if (cmd.includes("list-panes -s -t =test-abc-stg -F \"#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) {
 				return "0\tlogs\t%51\tnode\t5151\n1\tbuild\t%99\tzsh\t9999\n2\tci\t%77\tbash\t7777\n";
 			}
