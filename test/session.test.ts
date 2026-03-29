@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { deriveSessionName, deriveWindowName, resolveProjectRoot, tmuxEscape } from "../extensions/session.js";
+import { deriveSessionName, deriveWindowName, resolveProjectRoot, shellQuote, tmuxEscape } from "../extensions/session.js";
 
 // ---------------------------------------------------------------------------
 // deriveSessionName()
@@ -126,6 +126,20 @@ describe("tmuxEscape()", () => {
 
 	test("does not escape single quotes", () => {
 		expect(tmuxEscape("it's fine")).toBe("it's fine");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// shellQuote()
+// ---------------------------------------------------------------------------
+
+describe("shellQuote()", () => {
+	test("wraps tmux exact targets so zsh does not perform equals expansion", () => {
+		expect(shellQuote("=pi-tmux-be23e752")).toBe("'=pi-tmux-be23e752'");
+	});
+
+	test("escapes embedded single quotes", () => {
+		expect(shellQuote("it's fine")).toBe("'it'\\''s fine'");
 	});
 });
 

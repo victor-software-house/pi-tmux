@@ -3,7 +3,7 @@
  * Deprecated: use /tmux-promote to move pi into tmux first.
  */
 import type { AttachLayout, AttachOptions } from "./types.js";
-import { run, tryRun, tmuxEscape, tmuxSessionTarget } from "./session.js";
+import { run, shellQuote, tryRun, tmuxEscape, tmuxSessionTarget } from "./session.js";
 
 const IT2API = "/Applications/iTerm.app/Contents/Resources/utilities/it2api";
 const IT2API_INSTALL_HINT = "Enable: iTerm2 > Settings > General > Magic > Enable Python API. Then: uv pip install --system iterm2";
@@ -68,7 +68,7 @@ export function openTerminal(session: string, mode: AttachLayout, tmuxWindow?: n
 function openLegacy(opts: AttachOptions, mode: AttachLayout): string {
 	const { session, tmuxWindow } = opts;
 	const term = process.env.TERM_PROGRAM ?? "";
-	const attachCmd = `tmux attach -t ${tmuxSessionTarget(session)}`;
+	const attachCmd = `tmux attach -t ${shellQuote(tmuxSessionTarget(session))}`;
 
 	if (tmuxWindow !== undefined) {
 		tryRun(`tmux select-window -t ${tmuxSessionTarget(session)}:${tmuxWindow}`);

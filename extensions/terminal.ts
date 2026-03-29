@@ -5,6 +5,7 @@
  * process.env.TMUX. All other modules import from here.
  */
 import type { AttachLayout } from "./types.js";
+import { shellQuote, tmuxSessionTarget } from "./session.js";
 
 export interface TerminalAPI {
 	hasAttachedPane(tmuxSession: string): boolean;
@@ -50,6 +51,6 @@ export function attachToSession(
 		return openTerminal(session, mode, opts?.tmuxWindow);
 	} catch (e: unknown) {
 		const msg = e instanceof Error ? e.message : String(e);
-		return `Failed: ${msg}\nRun manually:\n  tmux attach -t ${session}`;
+		return `Failed: ${msg}\nRun manually:\n  tmux attach -t ${shellQuote(tmuxSessionTarget(session))}`;
 	}
 }

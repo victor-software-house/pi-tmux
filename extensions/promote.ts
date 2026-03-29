@@ -5,6 +5,7 @@
  */
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { resolveProjectRoot, deriveSessionName, tmuxSessionTarget } from "./session.js";
+import { getOrCreateBinding } from "./state.js";
 export function registerPromoteCommand(pi: ExtensionAPI): void {
 	if (process.env.TMUX) return;
 
@@ -22,7 +23,8 @@ export function registerPromoteCommand(pi: ExtensionAPI): void {
 			}
 
 			const root = resolveProjectRoot(ctx.cwd);
-			const tmuxSession = deriveSessionName(root);
+			const binding = getOrCreateBinding(pi, ctx.sessionManager, ctx.cwd);
+			const tmuxSession = binding.tmuxSessionName;
 
 			const args: string[] = ["pi"];
 			args.push("--session", sessionFile);

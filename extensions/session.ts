@@ -53,6 +53,11 @@ export function tmuxSessionTarget(name: string): string {
 	return `=${name}`;
 }
 
+/** Quote a shell argument so interactive shells do not reinterpret it. */
+export function shellQuote(value: string): string {
+	return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
 /** Check whether a tmux session with the given name is alive. */
 export function isSessionAlive(name: string): boolean {
 	return tryRun(`tmux has-session -t ${tmuxSessionTarget(name)} 2>/dev/null && echo ok`) === "ok";

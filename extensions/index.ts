@@ -10,13 +10,13 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import type { AttachLayout, ShellMode, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
-import { resolveProjectRoot, deriveSessionName } from "./session.js";
 import { hasAttachedPane } from "./terminal.js";
 import { trackCompletion, trackCompletionByPane, registerSilence, stopAll } from "./signals.js";
 import { actionRun, actionAttach, actionFocus, actionClose, actionPeek, actionList, actionKill, actionMute } from "./actions.js";
 import { buildParams, buildDescription, buildPromptSnippet, buildPromptGuidelines } from "./tool-builder.js";
-import { registerTmuxCommand, initCommandSettings } from "./command.js";
+import { registerTmuxCommand, initCommandSettings, initCommandPi } from "./command.js";
 import { registerPromoteCommand } from "./promote.js";
+import { getOrCreateBinding, rehydrate, clearCache, notifySessionCreated } from "./state.js";
 
 function toToolResult(result: { ok: boolean; message: string; details?: Record<string, unknown> }) {
 	return {
@@ -29,29 +29,35 @@ export default function (pi: ExtensionAPI) {
 	let currentSettings = loadSettings();
 
 	initCommandSettings(currentSettings);
+	initCommandPi(pi);
 
-	pi.on("session_start", async () => {
+	pi.on("session_start", async (_event, ctx) => {
 		currentSettings = loadSettings();
 		initCommandSettings(currentSettings);
+		rehydrate(ctx.sessionManager);
 	});
 
-	pi.on("session_switch", async () => {
+	pi.on("session_switch", async (_event, ctx) => {
 		currentSettings = loadSettings();
 		initCommandSettings(currentSettings);
+		rehydrate(ctx.sessionManager);
 	});
 
-	pi.on("session_tree", async () => {
+	pi.on("session_tree", async (_event, ctx) => {
 		currentSettings = loadSettings();
 		initCommandSettings(currentSettings);
+		rehydrate(ctx.sessionManager);
 	});
 
-	pi.on("session_fork", async () => {
+	pi.on("session_fork", async (_event, ctx) => {
 		currentSettings = loadSettings();
 		initCommandSettings(currentSettings);
+		rehydrate(ctx.sessionManager);
 	});
 
 	pi.on("session_shutdown", async () => {
 		stopAll();
+		clearCache();
 	});
 
 	registerTmuxCommand(pi);
@@ -68,8 +74,8 @@ export default function (pi: ExtensionAPI) {
 		parameters: buildParams(flags),
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			const root = resolveProjectRoot(ctx.cwd);
-			const session = deriveSessionName(root);
+			const binding = getOrCreateBinding(pi, ctx.sessionManager, ctx.cwd);
+			const session = binding.tmuxSessionName;
 
 			switch (params.action) {
 				case "run": {
@@ -78,10 +84,11 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					const shellMode = (params.shellMode as ShellMode | undefined) ?? currentSettings.defaultShellMode;
+					const commandCwd = params.cwd ?? ctx.cwd;
 					const result = await actionRun(session, {
 						command: params.command,
 						name: params.name,
-						cwd: params.cwd ?? root,
+						cwd: commandCwd,
 						windowReuse: currentSettings.windowReuse,
 						maxWindows: currentSettings.maxWindows,
 						autoFocus: currentSettings.autoFocus,
@@ -92,6 +99,11 @@ export default function (pi: ExtensionAPI) {
 					if (!result.ok) return toToolResult(result);
 
 					const { windowIndex, paneId, windowName, created } = result.details as Record<string, unknown>;
+
+					// Notify state layer when a new tmux session was created
+					if (created === true) {
+						notifySessionCreated(pi, ctx.sessionManager, session, commandCwd);
+					}
 
 					if (paneId) {
 						// Tmux mode: track by pane ID (works even when pane swaps between sessions)

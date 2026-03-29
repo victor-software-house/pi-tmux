@@ -28,6 +28,7 @@ import {
 } from "./settings.js";
 import { resolveProjectRoot, deriveSessionName, listWindows, listManagedPanes } from "./session.js";
 import { actionAttach, actionList, actionClear, actionKill, actionPeek, type ActionResult } from "./actions.js";
+import { getOrCreateBinding } from "./state.js";
 
 /** Route an ActionResult to the UI. */
 function notify(ctx: ExtensionCommandContext, result: ActionResult): void {
@@ -35,9 +36,14 @@ function notify(ctx: ExtensionCommandContext, result: ActionResult): void {
 }
 
 let currentSettings: TmuxSettings;
+let commandPi: ExtensionAPI;
 
 export function initCommandSettings(settings: TmuxSettings): void {
 	currentSettings = settings;
+}
+
+export function initCommandPi(piRef: ExtensionAPI): void {
+	commandPi = piRef;
 }
 
 export function registerTmuxCommand(pi: ExtensionAPI): void {
@@ -93,8 +99,8 @@ export function registerTmuxCommand(pi: ExtensionAPI): void {
 			const parts = raw.split(/\s+/);
 			const sub = (parts[0] ?? "").toLowerCase();
 			const windowArg = parseWindowArg(parts.slice(1).join(" "));
-			const root = resolveProjectRoot(ctx.cwd);
-			const session = deriveSessionName(root);
+			const binding = getOrCreateBinding(commandPi, ctx.sessionManager, ctx.cwd);
+			const session = binding.tmuxSessionName;
 
 			// Attach variants
 			const attachModes: Record<string, AttachLayout> = {
