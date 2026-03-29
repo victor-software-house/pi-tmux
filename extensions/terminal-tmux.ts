@@ -14,20 +14,23 @@ import { tryRun, tmuxSessionTarget } from "./session.js";
 // Track the view pane ID so we know if we already have one.
 let viewPaneId: string | null = null;
 
-export function hasAttachedPane(_tmuxSession: string): boolean {
-	if (!viewPaneId) return false;
-	// Verify the pane still exists
-	const check = tryRun(`tmux display-message -t ${viewPaneId} -p '#{pane_id}' 2>/dev/null`);
-	if (!check) {
-		viewPaneId = null;
-		return false;
-	}
-	return true;
+function findViewPaneId(tmuxSession: string): string | null {
+	const panes = tryRun(`tmux list-panes -t ${tmuxSessionTarget(tmuxSession)}:0 -F "#{pane_index}\t#{pane_id}"`);
+	if (!panes) return null;
+	const existing = panes.split("\n").find((line) => line.startsWith("1\t"));
+	if (!existing) return null;
+	return existing.split("\t")[1] ?? null;
 }
 
-export function closeAttachedSessions(_tmuxSession: string): void {
-	if (!viewPaneId) return;
-	tryRun(`tmux kill-pane -t ${viewPaneId}`);
+export function hasAttachedPane(tmuxSession: string): boolean {
+	viewPaneId = findViewPaneId(tmuxSession);
+	return viewPaneId !== null;
+}
+
+export function closeAttachedSessions(tmuxSession: string): void {
+	const paneId = viewPaneId ?? findViewPaneId(tmuxSession);
+	if (!paneId) return;
+	tryRun(`tmux kill-pane -t ${paneId}`);
 	viewPaneId = null;
 }
 
@@ -36,10 +39,9 @@ export function openTerminal(session: string, mode: AttachLayout, _tmuxWindow?: 
 
 	if (isSplit) {
 		// Check if view pane already exists (pane 1 of window 0)
-		const panes = tryRun(`tmux list-panes -t ${tmuxSessionTarget(session)}:0 -F "#{pane_index} #{pane_id}"`);
-		const existing = panes?.split("\n").find((l) => l.startsWith("1 "));
-		if (existing) {
-			viewPaneId = existing.split(" ")[1] ?? null;
+		const existingPaneId = findViewPaneId(session);
+		if (existingPaneId) {
+			viewPaneId = existingPaneId;
 			return "View pane already visible.";
 		}
 
