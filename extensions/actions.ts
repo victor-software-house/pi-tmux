@@ -401,8 +401,10 @@ export function actionKill(session: string, hostSession?: string, hostWindowInde
 	if (process.env.TMUX) {
 		const host = hostSession ?? session;
 		const staging = deriveStagingName(session);
-		tryRun(`tmux kill-session -t ${tmuxSessionTarget(staging)}`);
+		// Kill the view pane first — it was swapped from staging into the host,
+		// so kill-session on staging won't reach it.
 		tryRun(`tmux kill-pane -t ${tmuxSessionTarget(host)}:${hostWindowIndex}.1`);
+		tryRun(`tmux kill-session -t ${tmuxSessionTarget(staging)}`);
 		const { closeAttachedSessions: closeTmux } = require("./terminal-tmux.js") as typeof import("./terminal-tmux.js");
 		closeTmux(host, hostWindowIndex);
 		return { ok: true, message: `Killed command session ${staging}.` };
