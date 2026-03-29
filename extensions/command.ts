@@ -26,8 +26,8 @@ import {
 	MAX_WINDOWS_RANGE,
 	COMPLETION_POLL_INTERVAL_RANGE,
 } from "./settings.js";
-import { resolveProjectRoot, deriveSessionName, listWindows, listManagedPanes, tryRun } from "./session.js";
-import { actionAttach, actionList, actionClear, actionKill, actionPeek, type ActionResult } from "./actions.js";
+import { resolveProjectRoot, deriveSessionName, listManagedPanes, tryRun } from "./session.js";
+import { actionAttach, actionList, actionClear, actionKill, actionPeek, type ActionResult, type HostTarget } from "./actions.js";
 import { getOrCreateBinding } from "./state.js";
 
 /** Route an ActionResult to the UI. */
@@ -77,17 +77,11 @@ export function registerTmuxCommand(pi: ExtensionAPI): void {
 				const hostRaw = tmuxPane ? tryRun(`tmux display -p -t ${tmuxPane} "#{session_name}\t#{window_index}"`) : null;
 				const hostName = hostRaw?.split("\t")[0]?.trim() ?? session;
 				const hostWinIdx = Number.parseInt(hostRaw?.split("\t")[1] ?? "", 10) || 0;
-				const windowItems = process.env.TMUX
-					? listManagedPanes(session, hostName, hostWinIdx).map((pane) => ({
-						value: `${sub} :${pane.windowIndex}`,
-						label: `:${pane.windowIndex}  ${pane.title}${pane.visible ? "  (visible)" : ""}`,
-						description: pane.title,
-					}))
-					: listWindows(session).map((w) => ({
-						value: `${sub} :${w.index}`,
-						label: `:${w.index}  ${w.title}${w.active ? "  (active)" : ""}`,
-						description: w.title,
-					}));
+				const windowItems = listManagedPanes(session, hostName, hostWinIdx).map((pane) => ({
+					value: `${sub} :${pane.windowIndex}`,
+					label: `:${pane.windowIndex}  ${pane.title}${pane.visible ? "  (visible)" : ""}`,
+					description: pane.title,
+				}));
 				if (windowItems.length === 0) return null;
 
 				const filtered = rest
@@ -109,6 +103,10 @@ export function registerTmuxCommand(pi: ExtensionAPI): void {
 			const windowArg = parseWindowArg(parts.slice(1).join(" "));
 			const binding = getOrCreateBinding(commandPi, ctx.sessionManager, ctx.cwd);
 			const session = binding.tmuxSessionName;
+			const host: HostTarget = {
+				session: binding.hostSessionName,
+				windowIndex: binding.hostWindowIndex,
+			};
 
 			// Attach variants
 			const attachModes: Record<string, AttachLayout> = {
@@ -120,14 +118,14 @@ export function registerTmuxCommand(pi: ExtensionAPI): void {
 			if (sub in attachModes) {
 				const layout = attachModes[sub];
 				if (!layout) return;
-				notify(ctx, actionAttach(session, ctx.cwd, { layout, window: windowArg, hostSession: binding.hostSessionName, hostWindowIndex: binding.hostWindowIndex }));
+				notify(ctx, actionAttach(session, ctx.cwd, { layout, window: windowArg, host }));
 				return;
 			}
 
-			if (sub === "list" || sub === "show") { notify(ctx, actionList(session, binding.hostSessionName, binding.hostWindowIndex)); return; }
-			if (sub === "cat") return handleCat(ctx, pi, session, binding.hostSessionName, binding.hostWindowIndex, windowArg);
-			if (sub === "clear") { notify(ctx, actionClear(session)); return; }
-			if (sub === "kill") { notify(ctx, actionKill(session, binding.hostSessionName, binding.hostWindowIndex)); return; }
+			if (sub === "list" || sub === "show") { notify(ctx, actionList(session, host)); return; }
+			if (sub === "cat") return handleCat(ctx, pi, session, host, windowArg);
+			if (sub === "clear") { notify(ctx, actionClear(session, host)); return; }
+			if (sub === "kill") { notify(ctx, actionKill(session, host)); return; }
 
 			if (sub) {
 				ctx.ui.notify(`Unknown: /tmux ${sub}`, "warning");
@@ -136,7 +134,7 @@ export function registerTmuxCommand(pi: ExtensionAPI): void {
 
 			// No-arg: settings panel (or session summary in non-interactive)
 			if (!ctx.hasUI) {
-				notify(ctx, actionList(session));
+				notify(ctx, actionList(session, host));
 				return;
 			}
 
@@ -504,9 +502,8 @@ function parseWindowArg(raw: string): number | undefined {
 	return Number.isNaN(n) ? undefined : n;
 }
 
-async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session: string, hostSession: string, hostWindowIndex: number, windowArg?: number): Promise<void> {
-	// Quick session check for the interactive picker path
-	const listResult = actionList(session, hostSession, hostWindowIndex);
+async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session: string, host: HostTarget, windowArg?: number): Promise<void> {
+	const listResult = actionList(session, host);
 	if (!listResult.ok) {
 		ctx.ui.notify(listResult.message, "error");
 		return;
@@ -517,44 +514,24 @@ async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session
 	if (windowArg !== undefined) {
 		target = windowArg;
 	} else {
-		// Show interactive picker
-		if (process.env.TMUX) {
-			const panes = listManagedPanes(session, hostSession, hostWindowIndex);
-			const options = ["all panes", ...panes.map((pane) => `:${pane.windowIndex}  ${pane.title}${pane.visible ? "  (visible)" : ""}`)];
-			const choice = await ctx.ui.select("Capture output from:", options);
-			if (choice === undefined || choice === null) return;
-			if (String(choice) === "0" || choice === "all panes") {
-				target = "all";
-			} else {
-				const choiceIdx = typeof choice === "number" ? choice - 1 : options.indexOf(String(choice)) - 1;
-				const selectedPane = panes[choiceIdx];
-				if (!selectedPane) {
-					ctx.ui.notify("Invalid selection.", "error");
-					return;
-				}
-				target = selectedPane.windowIndex;
-			}
+		const panes = listManagedPanes(session, host.session, host.windowIndex);
+		const options = ["all panes", ...panes.map((pane) => `:${pane.windowIndex}  ${pane.title}${pane.visible ? "  (visible)" : ""}`)];
+		const choice = await ctx.ui.select("Capture output from:", options);
+		if (choice === undefined || choice === null) return;
+		if (String(choice) === "0" || choice === "all panes") {
+			target = "all";
 		} else {
-			const windows = listWindows(session);
-			const options = ["all windows", ...windows.map((w) => `:${w.index}  ${w.title}${w.active ? "  (active)" : ""}`)];
-			const choice = await ctx.ui.select("Capture output from:", options);
-			if (choice === undefined || choice === null) return;
-
-			if (String(choice) === "0" || choice === "all windows") {
-				target = "all";
-			} else {
-				const choiceIdx = typeof choice === "number" ? choice - 1 : options.indexOf(String(choice)) - 1;
-				const selectedWindow = windows[choiceIdx];
-				if (!selectedWindow) {
-					ctx.ui.notify("Invalid selection.", "error");
-					return;
-				}
-				target = selectedWindow.index;
+			const choiceIdx = typeof choice === "number" ? choice - 1 : options.indexOf(String(choice)) - 1;
+			const selectedPane = panes[choiceIdx];
+			if (!selectedPane) {
+				ctx.ui.notify("Invalid selection.", "error");
+				return;
 			}
+			target = selectedPane.windowIndex;
 		}
 	}
 
-	const result = actionPeek(session, target, hostSession, hostWindowIndex);
+	const result = actionPeek(session, target, host);
 	if (!result.ok) {
 		ctx.ui.notify(result.message, "error");
 		return;

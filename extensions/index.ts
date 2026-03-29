@@ -10,9 +10,10 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import type { AttachLayout, ShellMode, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
-import { hasAttachedPane } from "./terminal.js";
-import { trackCompletion, trackCompletionByPane, registerSilence, stopAll } from "./signals.js";
+import { hasAttachedPane } from "./terminal-tmux.js";
+import { trackCompletionByPane, registerSilence, stopAll } from "./signals.js";
 import { actionRun, actionAttach, actionFocus, actionClose, actionPeek, actionList, actionKill, actionMute } from "./actions.js";
+import type { HostTarget } from "./actions.js";
 import { buildParams, buildDescription, buildPromptSnippet, buildPromptGuidelines } from "./tool-builder.js";
 import { registerTmuxCommand, initCommandSettings, initCommandPi } from "./command.js";
 import { registerPromoteCommand } from "./promote.js";
@@ -126,8 +127,10 @@ export default function (pi: ExtensionAPI) {
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const binding = getOrCreateBinding(pi, ctx.sessionManager, ctx.cwd);
 			const session = binding.tmuxSessionName;
-			const hostSession = binding.hostSessionName;
-			const hostWindowIndex = binding.hostWindowIndex;
+			const host: HostTarget = {
+				session: binding.hostSessionName,
+				windowIndex: binding.hostWindowIndex,
+			};
 
 			switch (params.action) {
 				case "run": {
@@ -147,20 +150,17 @@ export default function (pi: ExtensionAPI) {
 						defaultLayout: currentSettings.defaultLayout,
 						shellMode,
 						target: params.window,
-						hostSession,
-						hostWindowIndex,
+						host,
 					});
 					if (!result.ok) return toToolResult(result);
 
-					const { windowIndex, paneId, windowName, created } = result.details as Record<string, unknown>;
+					const { paneId, windowName, created } = result.details as Record<string, unknown>;
 
-					// Notify state layer when a new tmux session was created
 					if (created === true) {
 						notifySessionCreated(pi, ctx.sessionManager, session, commandCwd);
 					}
 
 					if (paneId) {
-						// Tmux mode: track by pane ID (works even when pane swaps between sessions)
 						trackCompletionByPane(
 							pi,
 							session,
@@ -170,47 +170,21 @@ export default function (pi: ExtensionAPI) {
 							currentSettings.completionTriggerTurn,
 							currentSettings.completionPollIntervalMs,
 						);
-					} else {
-						const winIdx = windowIndex as number;
-						trackCompletion(
-							pi,
-							session,
-							winIdx,
-							currentSettings.completionDelivery,
-							currentSettings.completionTriggerTurn,
-							currentSettings.completionPollIntervalMs,
-						);
 					}
 
-							const timeout = params.silenceTimeout ?? 0;
+					const timeout = params.silenceTimeout ?? 0;
 					if (timeout > 0 && !paneId) {
 						const silence: SilenceConfig = {
 							timeout,
 							factor: params.silenceBackoffFactor ?? 1.5,
 							cap: params.silenceBackoffCap ?? 300,
 						};
-						registerSilence(session, windowIndex as number, silence);
-					}
-
-					// Auto-attach (no-op in tmux mode — view pane already swapped in)
-					let message = result.message;
-					if (!paneId && flags.canAttach && !hasAttachedPane(session)) {
-						const autoFires =
-							currentSettings.autoAttach === "always" ||
-							(currentSettings.autoAttach === "session-create" && created === true);
-						if (autoFires) {
-							const attach = actionAttach(session, ctx.cwd, {
-								layout: currentSettings.defaultLayout,
-								window: windowIndex as number,
-								hostSession,
-								hostWindowIndex,
-							});
-							message += "\n" + attach.message;
-						}
+						const { stagingIdx } = result.details as Record<string, unknown>;
+						registerSilence(session, stagingIdx as number, silence);
 					}
 
 					return {
-						content: [{ type: "text", text: message }],
+						content: [{ type: "text", text: result.message }],
 						details: result.details ?? {},
 					};
 				}
@@ -220,21 +194,21 @@ export default function (pi: ExtensionAPI) {
 						return toToolResult({ ok: false, message: "Error: attach is disabled in settings. Use /tmux attach manually." });
 					}
 					const layout = (params.mode as AttachLayout | undefined) ?? currentSettings.defaultLayout;
-					return toToolResult(actionAttach(session, ctx.cwd, { layout, window: params.window, hostSession, hostWindowIndex }));
+					return toToolResult(actionAttach(session, ctx.cwd, { layout, window: params.window, host }));
 				}
 
 				case "focus": {
 					if (params.window === undefined) {
 						return toToolResult({ ok: false, message: "Error: 'window' is required for focus." });
 					}
-					return toToolResult(actionFocus(session, params.window, hostSession, hostWindowIndex));
+					return toToolResult(actionFocus(session, params.window, host));
 				}
 
 				case "close": {
 					if (params.window === undefined) {
 						return toToolResult({ ok: false, message: "Error: 'window' is required for close. Use kill to close the entire session." });
 					}
-					return toToolResult(actionClose(session, params.window, hostSession, hostWindowIndex));
+					return toToolResult(actionClose(session, params.window, host));
 				}
 
 				case "peek": {
@@ -246,14 +220,14 @@ export default function (pi: ExtensionAPI) {
 								: Number.isNaN(Number.parseInt(String(params.window), 10))
 									? String(params.window)
 									: Number.parseInt(String(params.window), 10);
-					return toToolResult(actionPeek(session, target, hostSession, hostWindowIndex));
+					return toToolResult(actionPeek(session, target, host));
 				}
 
 				case "list":
-					return toToolResult(actionList(session, hostSession, hostWindowIndex));
+					return toToolResult(actionList(session, host));
 
 				case "kill":
-					return toToolResult(actionKill(session, hostSession, hostWindowIndex));
+					return toToolResult(actionKill(session, host));
 
 				case "mute": {
 					if (!flags.canMute) {
@@ -263,7 +237,7 @@ export default function (pi: ExtensionAPI) {
 						return toToolResult({ ok: false, message: "Error: 'window' target required for mute." });
 					}
 					const muteTarget = typeof params.window === "number" ? params.window : Number.isNaN(Number.parseInt(String(params.window), 10)) ? String(params.window) : Number.parseInt(String(params.window), 10);
-					return toToolResult(actionMute(session, muteTarget, hostSession, hostWindowIndex));
+					return toToolResult(actionMute(session, muteTarget, host));
 				}
 
 				default:
