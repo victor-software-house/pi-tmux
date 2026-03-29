@@ -86,6 +86,25 @@ This architecture works at the tmux level: commands execute, output appears in t
 
 ---
 
+## SWAP-SHUFFLE: Sequential auto-focus swaps displace pane contents into wrong staging slots
+
+**What happens:** After `run name: a`, `run name: b`, `run name: c` with `autoFocus: always`, staging window `:1` (named `a`) contains `VERIFY-C` content, `:2` (named `b`) contains `VERIFY-A`, and `:3` (named `c`) contains `VERIFY-B`. The names are correct but the pane contents are rotated.
+
+**Why this is a problem:** `peek window: b` returns the content of whichever pane is currently in staging slot `:2`, which is `VERIFY-A` — not `VERIFY-B`. The model sees the wrong output for the command it asked about. Focus, resume, and close all route to the correct staging window by name, but the pane occupying that window is not the one the name implies.
+
+**Root cause:** Each `run` with auto-focus calls `swapViewPane(host, staging, newIdx)`. This exchanges the current view pane with the pane in `staging:newIdx`. The previous view pane (from the last `run`) goes into `staging:newIdx`, not back to its original staging slot. After three runs:
+1. run `a` -> swap view with staging `:1` -> view has `a`-pane, staging `:1` has old view shell
+2. run `b` -> swap view with staging `:2` -> view has `b`-pane, staging `:2` has `a`-pane
+3. run `c` -> swap view with staging `:3` -> view has `c`-pane, staging `:3` has `b`-pane
+
+Result: staging `:1` has old shell, `:2` has `a`-pane, `:3` has `b`-pane, view has `c`-pane.
+
+**Fix direction:** Before swapping the new pane into the view, swap the current view pane back to its original staging slot first. Use the `@pi_visible_staging_window` tracking to know which slot to return it to. The sequence becomes: (1) swap current view pane back to its tracked staging slot, (2) swap new staging pane into the view, (3) update the visible-staging-window tracker.
+
+**Verification:** After fix, `run a`, `run b`, `run c`, then `peek window: a` must return `VERIFY-A`, `peek window: b` must return `VERIFY-B`, `peek window: c` must return `VERIFY-C`.
+
+---
+
 ## HOST-PLUMBING: hostWindowIndex threading is fragile and error-prone
 
 **What happens:** Every action call site in `index.ts` and `command.ts` must manually pass `hostSession` and `hostWindowIndex` as positional arguments. Missing one argument silently falls back to the default (`0`), which targets the wrong tmux window. This has caused multiple rounds of fixes where some call sites were updated and others were missed.
