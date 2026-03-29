@@ -74,15 +74,24 @@ Example: a split stopped appearing → `git log -p -- extensions/terminal-tmux.t
 - The operator's answer is the only valid signal
 - Use explicit questioning format for every live check so a cold reader can follow the validation sequence
 
+**Before asking the operator, verify with `it2api` first:**
+1. Identify Pi's own tab with `TMUX_PANE` + `it2api get-buffer` content matching (not `show-focus`)
+2. Check whether a split actually exists in that tab via `it2api show-hierarchy`
+3. Only then ask the operator for visual confirmation
+4. Never ask the operator to confirm something you have not already verified programmatically
+
 Example:
 ```
-Agent: "I split the pane. Do you see the split?"
+Agent: [runs it2api show-hierarchy, confirms split exists in Pi's tab]
+Agent: "I see the split in your tab via it2api. Do you see VERIFY-A in the split?"
 Operator: "yes" / "no, nothing changed"
 ```
 
 Do NOT:
 - Assume a tmux command worked because exit code was 0
 - Declare "it works" without operator confirmation
+- Ask the operator before verifying with it2api
+- Use `it2api show-focus` to identify Pi's tab (focus can be on a different tab)
 - Write code to fix something before verifying the symptom live
 
 ### Document issues immediately

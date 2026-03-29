@@ -97,6 +97,7 @@ export default function (pi: ExtensionAPI) {
 						shellMode,
 						target: params.window,
 						hostSession,
+						hostWindowIndex,
 					});
 					if (!result.ok) return toToolResult(result);
 
