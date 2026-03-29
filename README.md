@@ -59,6 +59,11 @@ The notification includes a peek of the window output so the agent can decide wh
 - `/tmux` command accepts mode argument with autocomplete
 - iTerm2 AppleScript uses `split vertically` / `split horizontally` on `current session` for split modes
 
+## Credits
+
+Original: [@romansix/pi-tmux](https://github.com/indigoviolet/pi-tmux) by [indigoviolet](https://github.com/indigoviolet).
+Inspired by [normful/picadillo's run-in-tmux skill](https://github.com/normful/picadillo/blob/main/skills/run-in-tmux/SKILL.md).
+
 ## Recommended tmux setup
 
 Pi uses modified key sequences (Ctrl+Shift+P, Ctrl+Enter, etc.) that stock tmux cannot forward correctly. The recommended setup uses the [jixiuf/tmux](https://github.com/jixiuf/tmux) fork, which adds the Kitty keyboard protocol.
@@ -133,11 +138,6 @@ If using iTerm2 with `tmux -CC` integration:
 Stock tmux supports `extended-keys` with CSI-u encoding, but `extended-keys always` breaks Ctrl-C in regular shells. The `on` mode (apps opt-in) is safe but pi does not explicitly request extended keys, so modified keys are not forwarded.
 
 The jixiuf fork adds `kitty-keys`, which handles the full Kitty keyboard protocol and correctly forwards Ctrl+Shift+P, Ctrl+Enter, and other modified keys without breaking Ctrl-C.
-
-## Credits
-
-Original: [@romansix/pi-tmux](https://github.com/indigoviolet/pi-tmux) by [indigoviolet](https://github.com/indigoviolet).
-Inspired by [normful/picadillo's run-in-tmux skill](https://github.com/normful/picadillo/blob/main/skills/run-in-tmux/SKILL.md).
 
 ## License
 
