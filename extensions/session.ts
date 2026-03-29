@@ -130,12 +130,17 @@ export function createStagingWindow(staging: string, cwd: string, name: string):
 	run(`tmux new-window -d -t ${tmuxSessionTarget(staging)} -n "${tmuxEscape(safeName)}" -c "${cwd}"`);
 	// Get the index of the window we just created (last window by index)
 	const raw = tryRun(`tmux list-windows -t ${tmuxSessionTarget(staging)} -F "#{window_index}\t#{window_name}"`);
-	if (!raw) return 0;
-	for (const line of raw.split("\n").reverse()) {
-		const parts = line.split("\t");
-		if (parts[1] === safeName) return parseInt(parts[0] ?? "0", 10);
+	let idx = 0;
+	if (raw) {
+		for (const line of raw.split("\n").reverse()) {
+			const parts = line.split("\t");
+			if (parts[1] === safeName) { idx = parseInt(parts[0] ?? "0", 10); break; }
+		}
 	}
-	return 0;
+	// Label the pane with its home window so it can be returned after swap-pane
+	const paneId = tryRun(`tmux display -p -t ${tmuxSessionTarget(staging)}:${idx}.0 "#{pane_id}"`);
+	if (paneId) setHomeWindow(paneId.trim(), idx);
+	return idx;
 }
 
 /**
@@ -173,6 +178,9 @@ export function swapViewPane(session: string, staging: string, stagingIdx: numbe
  */
 export function respawnStagingWindow(staging: string, windowIdx: number, cwd: string): void {
 	run(`tmux respawn-pane -k -t ${tmuxSessionTarget(staging)}:${windowIdx}.0 -c "${cwd}"`);
+	// Re-label the new pane with its home window (respawn creates a new pane ID)
+	const paneId = tryRun(`tmux display -p -t ${tmuxSessionTarget(staging)}:${windowIdx}.0 "#{pane_id}"`);
+	if (paneId) setHomeWindow(paneId.trim(), windowIdx);
 }
 
 /** Label a pane with its home staging window index. Survives swap-pane. */

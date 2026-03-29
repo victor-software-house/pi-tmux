@@ -6,7 +6,7 @@
  * respective interfaces.
  */
 import type { AttachLayout, AutoFocus, ShellMode, WindowReuse } from "./types.js";
-import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape, commandSession, ensureStagingSession, ensureViewPane, createStagingWindow, swapViewPane, respawnStagingWindow, deriveStagingName, listManagedPanes, getPaneId, resolveManagedPane, waitForPaneQuiescence, tmuxSessionTarget, setHomeWindow } from "./session.js";
+import { run, tryRun, isSessionAlive, isWindowIdle, listWindows, resolveWindow, captureOutput, deriveWindowName, tmuxEscape, commandSession, ensureStagingSession, ensureViewPane, createStagingWindow, swapViewPane, respawnStagingWindow, deriveStagingName, listManagedPanes, getPaneId, resolveManagedPane, waitForPaneQuiescence, tmuxSessionTarget } from "./session.js";
 import { attachToSession, closeAttachedSessions, hasAttachedPane } from "./terminal.js";
 import { sendCommand, sendCommandToPane, createWindowWithCommand, startCommandInFirstWindow, clearSilenceForWindow, trackCompletionByPane } from "./signals.js";
 
@@ -117,7 +117,6 @@ export async function actionRun(session: string, opts: RunOpts): Promise<ActionR
 				respawnStagingWindow(staging, stagingIdx, opts.cwd);
 				tryRun(`tmux rename-window -t ${tmuxSessionTarget(staging)}:${stagingIdx} "${tmuxEscape(windowName)}"`);
 				paneId = getPaneId(`${staging}:${stagingIdx}.0`);
-				if (paneId) setHomeWindow(paneId, stagingIdx);
 				lifecycle = "fresh-respawned";
 			}
 		}
@@ -128,7 +127,6 @@ export async function actionRun(session: string, opts: RunOpts): Promise<ActionR
 			}
 			stagingIdx = createStagingWindow(staging, opts.cwd, windowName);
 			paneId = getPaneId(`${staging}:${stagingIdx}.0`);
-			if (paneId) setHomeWindow(paneId, stagingIdx);
 		}
 
 		if (!paneId) {
