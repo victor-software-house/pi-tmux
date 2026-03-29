@@ -11,6 +11,16 @@ import { attachToSession, closeAttachedSessions, hasAttachedPane } from "./termi
 import { sendCommand, sendCommandToPane, createWindowWithCommand, startCommandInFirstWindow, clearSilenceForWindow, trackCompletionByPane } from "./signals.js";
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Check if the session is active. In tmux mode, checks the staging session. */
+function hasActiveSession(session: string): boolean {
+	if (process.env.TMUX) return isSessionAlive(commandSession(session));
+	return isSessionAlive(session);
+}
+
+// ---------------------------------------------------------------------------
 // Result types
 // ---------------------------------------------------------------------------
 
@@ -240,7 +250,7 @@ export function actionAttach(
 	cwd: string,
 	opts: { layout: AttachLayout; window?: number | string; hostSession?: string },
 ): ActionResult {
-	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
+	if (!hasActiveSession(session)) return { ok: false, message: `No active session '${session}'.` };
 
 	// In tmux mode, attach creates a visible split/tab via CC.
 	if (process.env.TMUX) {
@@ -278,7 +288,7 @@ export function actionAttach(
 // ---------------------------------------------------------------------------
 
 export function actionFocus(session: string, target: number | string, hostSession?: string): ActionResult {
-	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
+	if (!hasActiveSession(session)) return { ok: false, message: `No active session '${session}'.` };
 
 	if (process.env.TMUX) {
 		const pane = resolveManagedPane(session, target);
@@ -305,7 +315,7 @@ export function actionFocus(session: string, target: number | string, hostSessio
 // ---------------------------------------------------------------------------
 
 export function actionClose(session: string, target: number | string): ActionResult {
-	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
+	if (!hasActiveSession(session)) return { ok: false, message: `No active session '${session}'.` };
 
 	if (process.env.TMUX) {
 		const pane = resolveManagedPane(session, target);
@@ -330,7 +340,7 @@ export function actionClose(session: string, target: number | string): ActionRes
 // ---------------------------------------------------------------------------
 
 export function actionPeek(session: string, target: number | string | "all"): ActionResult {
-	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
+	if (!hasActiveSession(session)) return { ok: false, message: `No active session '${session}'.` };
 
 	if (process.env.TMUX) {
 		if (target === "all") {
@@ -360,7 +370,7 @@ export function actionPeek(session: string, target: number | string | "all"): Ac
 // ---------------------------------------------------------------------------
 
 export function actionList(session: string): ActionResult {
-	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
+	if (!hasActiveSession(session)) return { ok: false, message: `No active session '${session}'.` };
 
 	if (process.env.TMUX) {
 		const panes = listManagedPanes(session);
@@ -382,7 +392,7 @@ export function actionList(session: string): ActionResult {
 // ---------------------------------------------------------------------------
 
 export function actionKill(session: string, hostSession?: string): ActionResult {
-	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
+	if (!hasActiveSession(session)) return { ok: false, message: `No active session '${session}'.` };
 	if (process.env.TMUX) {
 		const host = hostSession ?? session;
 		const staging = deriveStagingName(session);
@@ -403,7 +413,7 @@ export function actionKill(session: string, hostSession?: string): ActionResult 
 // ---------------------------------------------------------------------------
 
 export function actionClear(session: string): ActionResult {
-	if (!isSessionAlive(session)) return { ok: false, message: "No active session." };
+	if (!hasActiveSession(session)) return { ok: false, message: "No active session." };
 
 	if (process.env.TMUX) {
 		const idlePanes = listManagedPanes(session).filter((pane) => pane.idle);
@@ -446,7 +456,7 @@ export function actionClear(session: string): ActionResult {
 // ---------------------------------------------------------------------------
 
 export function actionMute(session: string, target: number | string): ActionResult {
-	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
+	if (!hasActiveSession(session)) return { ok: false, message: `No active session '${session}'.` };
 
 	if (process.env.TMUX) {
 		const pane = resolveManagedPane(session, target);
