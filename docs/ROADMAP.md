@@ -5,13 +5,13 @@
 1. **PANE-META** — Replace pane metadata with staging window queries. This unblocks list, peek, close, focus, resume, and mute. Every other improvement depends on these actions working correctly.
 2. **ATTACH-VERIFY** — Small fix, eliminates a class of confusing "already visible" false positives. Do it while touching the terminal code.
 3. **LEGACY-GATE** (phase 1) — Add the runtime gate so the tool stops pretending to work outside tmux. No code deletion, just a check and a warning. This prevents wasted debugging time on a path that will never be supported.
-4. **LEGACY-GATE** (phases 2-3) — Delete dead code, flatten the branching, rename files. Do this after the gate has been live for a bit. Easier to do once PANE-META is fixed because actions.ts will already be heavily edited.
-5. **OUTPUT-TRACK** — Implement pipe-pane logging and output metadata. Depends on PANE-META being done (peek must work by name first). This changes how the model interacts with command output, so it needs stable pane identity.
-6. **COMPLETE-BUILTIN** — Fix premature completion for builtins. Independent of other work but lower urgency — most commands are not interactive builtins.
+4. **LEGACY-GATE** (phases 2-3) — Delete legacy branches from `actions.ts`, delete `terminal.ts` dispatcher, delete `terminal-legacy.ts`, rename `terminal-tmux.ts` to `terminal.ts`. Easier to do after PANE-META because `actions.ts` will already be heavily edited.
+5. **OUTPUT-TRACK** — Implement `tmux pipe-pane` logging and output metadata in completion notifications. Depends on PANE-META because `peek` must resolve panes by name before ranged output reads are useful.
+6. **COMPLETE-BUILTIN** — Fix premature completion for shell builtins (`read`, `wait`, etc.). Independent of other items. Lower urgency because most commands the model runs are external processes, not interactive builtins.
 7. **FOCUS-LEAK** — Cosmetic. Fix after the swap-pane flow is stable.
-8. **CTX-SIGNAL, SCHEMA-COMPAT, MSG-DELIVERY** — Pi API integrations. Do when convenient.
+8. **CTX-SIGNAL, SCHEMA-COMPAT, MSG-DELIVERY** — Integrations with Pi runtime APIs added in v0.63-0.64. Independent of each other and of the above items.
 
-Items within the same priority tier can be reordered. Items across tiers should not — each tier assumes the previous one is done.
+Items 1-2 are prerequisites for everything else. Items 3-5 have ordering dependencies (noted above). Items 6-8 are independent of each other.
 
 ---
 

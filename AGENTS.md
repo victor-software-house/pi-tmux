@@ -6,7 +6,7 @@ A Pi extension that provides a `tmux` tool for running and managing long-running
 
 ## Tenets
 
-1. **tmux is the architecture, not an option.** Every code path assumes tmux CC mode. There is no supported non-tmux mode. Legacy code exists only to support `/tmux-promote` (the entry ramp). Do not add `if (process.env.TMUX)` branches — remove them.
+1. **tmux is the architecture, not an option.** Every code path assumes tmux CC mode. There is no supported non-tmux mode. Legacy code exists only to support `/tmux-promote`, which moves the Pi process from a bare terminal into a tmux CC session. Do not add `if (process.env.TMUX)` branches — remove them.
 
 2. **Never trust in-memory state over tmux.** tmux is the source of truth for sessions, windows, panes, and their state. If in-memory tracking disagrees with `tmux list-*`, tmux wins. Caches are for performance, not authority.
 
@@ -14,13 +14,13 @@ A Pi extension that provides a `tmux` tool for running and managing long-running
 
 4. **The model must know what it cannot see.** If output is truncated, say how much was omitted and from where. If a pane was killed externally, detect it instead of reporting stale state. The model makes decisions based on tool output — incomplete or stale information leads to wrong decisions.
 
-5. **The operator must see what the model does.** Every command the model runs must produce visible output in the view pane. Invisible panes, silent failures, and no-op stubs are bugs. If the operator cannot see it, it did not happen.
+5. **The operator must see what the model does.** Every command the model runs must produce visible output in the view pane (the iTerm2 split alongside Pi's own pane). Invisible panes, silent failures, and no-op stubs are bugs. If the operator cannot see it, it did not happen.
 
 6. **Test live before declaring it works.** Unit tests verify logic. Only live testing in a tmux CC session verifies visibility, swap behavior, and iTerm2 integration. Use `it2api list-sessions` to confirm panes exist. Ask the operator what they see.
 
 7. **Detect and warn, do not silently override.** If the tmux environment is missing capabilities (jixiuf fork, kitty-keys, extended-keys), warn the operator. Do not force-set options that belong in the operator's global config.
 
-8. **State is initialized once and cached.** Host session detection, settings, and session identity are resolved on session start and cached for the lifetime of the Pi session. Re-detection happens only on error with a retry limit. Stale volatile state (like host session name) is never persisted.
+8. **State is initialized once and cached.** Host session name, settings, and the derived tmux session name are resolved on session start and cached in-memory for the lifetime of the Pi process. Re-detection of the host session happens only when a tmux operation fails, with a maximum of 3 retries before giving up. Volatile runtime values (host session name) are never written to Pi session entries — only the derived session name and the originating cwd are persisted.
 
 ## Architecture
 
@@ -28,7 +28,7 @@ In tmux CC mode, the extension uses two sessions:
 - **Host session** — the CC-attached session Pi runs in (auto-detected, numeric name like `0`, `5`). The view pane (visible split) lives here as pane 1 of window 0.
 - **Staging session** (`{derived-name}-stg`) — hidden, not CC-attached. Commands run here in separate windows. `swap-pane` rotates staging panes in and out of the view pane.
 
-The host session name is volatile (changes every Pi restart). It is detected once per session via `tmux display-message` and cached in-memory. It is never persisted. The derived session name (hash-based) is persisted in Pi session entries for continuity across tool calls.
+The host session name is assigned by tmux when the session is created (e.g. `0`, `2`, `5`) and changes every time Pi restarts or promotes into a new tmux session. It is detected once on session start via `tmux display-message -p '#{session_name}'` and cached in-memory for the lifetime of the Pi process. It is never persisted because it would be stale on the next run. The derived session name (project directory slug + md5 hash, e.g. `pi-tmux-be23e752`) is persisted in Pi session entries so the staging session can be located across tool calls within the same Pi session.
 
 ## Key files
 
@@ -80,9 +80,14 @@ See `docs/ROADMAP.md` for execution order and all tracked work items with codes.
 
 The tmux tool must be tested live inside a tmux CC session (iTerm2). Unit tests cover session derivation, settings, and action routing but cannot verify CC-mode visibility or swap behavior. Always validate with the operator.
 
-Test commands to verify visibility:
+Test commands to verify visibility (replace HOST and STAGING with actual session names):
 ```bash
-it2api list-sessions    # confirm pane dimensions changed (split exists)
-tmux list-panes -t HOST:0  # confirm pane 1 exists
-tmux list-windows -t STAGING  # confirm window names match expectations
+# Confirm the split exists — the host session should show two panes, not one
+tmux list-panes -t '=HOST:0' -F '#{pane_index} #{pane_id} #{pane_current_command}'
+
+# Confirm iTerm2 sees the split — look for reduced dimensions (e.g. 75x43 instead of 150x45)
+it2api list-sessions
+
+# Confirm staging window names match the names passed to run
+tmux list-windows -t '=STAGING' -F '#{window_index} #{window_name}'
 ```

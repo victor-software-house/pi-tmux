@@ -2,11 +2,11 @@
 
 ## Status: non-tmux mode is deprecated, tmux CC is the only supported path
 
-The extension was originally built for outside-tmux use (it2api, osascript, etc.) and later gained tmux CC mode. Both paths coexist in the codebase via `if (process.env.TMUX)` branches. The non-tmux path is untested, adds complexity, and should be removed.
+The extension was originally built to work outside tmux, using iTerm2's Python API (`it2api`), AppleScript (`osascript`), and terminal-specific CLI tools to open tabs and splits. tmux CC mode was added later as a second code path. Both paths now coexist via `if (process.env.TMUX)` branches in every action function. The non-tmux path has not been tested since the CC mode was introduced, adds branching complexity to every action, and includes dead code that actively interferes with the tmux path (see `actionClear` fallthrough below).
 
 ## What must survive
 
-`promote.ts` and the subset of `terminal-legacy.ts` it depends on. The promote command is the entry point for users not yet in tmux — it creates a tmux session and re-launches pi inside it via `tmux -CC attach`. It needs:
+`promote.ts` and one function from `terminal-legacy.ts`. The `/tmux-promote` command is the entry point for operators who launch Pi outside tmux. It creates a tmux session, starts a new Pi process inside it, opens an iTerm2 tab with `tmux -CC attach`, and shuts down the original Pi process. It needs:
 
 - `terminal-legacy.ts` `getActiveiTermSession()` — gets pi's current iTerm2 session ID for closing the old tab after promote
 - `it2api create-tab` — opens the new tab with CC attach
@@ -16,19 +16,19 @@ Everything else in `terminal-legacy.ts` (the `openLegacy` function with its iTer
 ## Dead code in tmux mode
 
 ### `terminal.ts` `attachToSession()`
-Never called in tmux mode. `actionAttach` calls `openTerminal` from `terminal-tmux.ts` directly. The function re-derives the session name from cwd (ignoring the state module) and would target the wrong session.
+Never called in tmux mode. `actionAttach` bypasses it and calls `openTerminal` from `terminal-tmux.ts` directly. `attachToSession` re-derives the session name from cwd via `deriveSessionName()`, ignoring the state module's persisted session name. If it were called, it would target the wrong tmux session.
 
 ### `terminal.ts` re-exports (`hasAttachedPane`, `closeAttachedSessions`, `openTerminal`)
-The dispatcher loads the right impl at startup, but tmux-mode actions bypass these re-exports and `require("./terminal-tmux.js")` directly. Two import paths for the same functions — fragile and confusing.
+`terminal.ts` loads the correct implementation at startup (tmux or legacy) and re-exports three functions. However, tmux-mode code in `actions.ts` bypasses these re-exports and uses `require("./terminal-tmux.js")` directly. This creates two import paths to the same functions, making it unclear which is authoritative.
 
 ### Legacy branches in `actions.ts`
-Every action has an `if (process.env.TMUX) { ... }` tmux branch followed by legacy code. The legacy code uses the window-per-command model (one tmux window per run, no staging, no swap-pane). Approximately 100 lines across all actions.
+Every action function (`actionRun`, `actionAttach`, `actionFocus`, `actionClose`, `actionPeek`, `actionList`, `actionKill`, `actionClear`, `actionMute`) contains an `if (process.env.TMUX) { ... }` block for the CC path followed by an `else`/fallthrough block for the legacy window-per-command model. The legacy model creates one tmux window per command in the main session (no staging, no swap-pane). This accounts for approximately 100 lines of code that is never executed in tmux mode.
 
 ### `actionClear` fallthrough
-The tmux branch in `actionClear` queries `listManagedPanes` (broken due to PANE-META). If it returns empty, execution falls through to the legacy `list-windows` + `pgrep` path, which operates on the wrong session in tmux mode. Fixing PANE-META will fix the managed pane query, but the fallthrough path should be deleted regardless.
+The tmux branch in `actionClear` queries `listManagedPanes()`, which returns an empty list due to PANE-META. When the list is empty, execution falls through to the legacy `list-windows` + `pgrep` path below the `if (process.env.TMUX)` block. That legacy path queries `commandSession(session)` which returns the staging session name, but then operates on its windows using the legacy idle-detection logic. This produces incorrect results because the legacy path does not understand the staging architecture. Fixing PANE-META would make the tmux branch work, but the fallthrough itself is a bug that should be eliminated by deleting the legacy branch.
 
 ### `source-file ~/.config/pi-tmux/tmux.conf`
-Only called in the legacy `actionRun` path when creating a new session. In tmux mode, the staging session inherits global config. The conf file currently only sets `mouse on` which is already global.
+Only executed in the legacy `actionRun` path when creating a new tmux session outside CC mode. In tmux CC mode, the staging session is created by `ensureStagingSession()` which does not source this file. The staging session inherits all options from the tmux server's global config (`~/.tmux.conf`). The pi-tmux conf file (`~/.config/pi-tmux/tmux.conf`) currently sets only `mouse on`, which is already set globally.
 
 ## Removal plan
 
