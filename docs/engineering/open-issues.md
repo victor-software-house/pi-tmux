@@ -45,7 +45,15 @@
 - `peek` reads from the log file with offset/limit params, not `capture-pane`
 - Log files cleaned up on `kill` / session end
 
-## 5. `attach` returns "View pane already visible" without verifying visibility
+## 5. Completion tracker fires prematurely for shell builtins (read, wait, etc.)
+
+**Symptom:** `read -r` blocks for user input but the completion tracker sees `pane_current_command=zsh` and marks the command as finished.
+
+**Root cause:** Shell builtins don't change the foreground process name. The tracker checks `pane_current_command` for idle shell names (zsh, bash, etc.) and can't distinguish "shell waiting for builtin" from "shell idle after command".
+
+**Direction:** Complement `pane_current_command` with `pane_pid` subprocess check (`pgrep -P $pid`) or use shell integration markers to detect true command completion. Alternatively, use `pipe-pane` logs to detect the prompt appearing after command output.
+
+## 6. `attach` returns "View pane already visible" without verifying visibility
 
 **Symptom:** `attach` says visible but user may not see a split if the view pane was killed externally.
 
