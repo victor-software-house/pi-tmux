@@ -63,7 +63,7 @@ See `docs/ROADMAP.md` for execution order and all tracked work items with codes.
 - **Commit frequently.** Small, focused commits. Each commit should be a coherent change that passes typecheck and tests.
 - **Never amend.** History is append-only. If a commit is wrong, fix forward with a new commit.
 - **Push after every commit.** Remote must always reflect local state.
-- **Tag working checkpoints.** After completing a roadmap item or reaching a stable state, tag with `git tag -a v{version}-{code} -m "description"`. These are rollback points for emergencies.
+- **Tag working checkpoints.** After completing a roadmap item or reaching a stable state, tag with `git tag -a v{version}-{code} -m "description"`. These are rollback targets when a later change introduces a regression.
 - **Pull on the local install** (`~/.pi/agent/git/.../pi-tmux`) after every push so the live extension matches.
 
 ## Before committing
