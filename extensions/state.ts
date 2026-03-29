@@ -37,6 +37,9 @@ let cached: TmuxSessionStateV1 | null = null;
 
 /** Host session name, detected once and cached for the lifetime of this pi session. */
 let cachedHostSession: string | null | undefined = undefined; // undefined = not yet detected
+/** Number of failed host detection attempts. */
+let hostDetectFailures = 0;
+const MAX_HOST_DETECT_RETRIES = 3;
 
 /** Read the cached state. Returns null if not yet loaded. */
 export function getCachedState(): TmuxSessionStateV1 | null {
@@ -47,6 +50,7 @@ export function getCachedState(): TmuxSessionStateV1 | null {
 export function clearCache(): void {
 	cached = null;
 	cachedHostSession = undefined;
+	hostDetectFailures = 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -57,15 +61,38 @@ export function clearCache(): void {
  * Detect the current tmux host session name.
  * Cached after first call — the CC session name is stable within a pi session.
  */
+/**
+ * Detect and cache the tmux host session name.
+ * Called once on session start / rehydrate. On failure, retries up to
+ * MAX_HOST_DETECT_RETRIES times before giving up.
+ */
 function getHostSession(): string | null {
 	if (cachedHostSession !== undefined) return cachedHostSession;
 	if (!process.env.TMUX) {
 		cachedHostSession = null;
 		return null;
 	}
+	if (hostDetectFailures >= MAX_HOST_DETECT_RETRIES) {
+		// Already exhausted retries — don't keep hammering
+		return null;
+	}
 	const raw = tryRun("tmux display-message -p '#{session_name}'");
-	cachedHostSession = raw?.trim() || null;
-	return cachedHostSession;
+	const name = raw?.trim() || null;
+	if (name) {
+		cachedHostSession = name;
+		hostDetectFailures = 0;
+	} else {
+		hostDetectFailures++;
+	}
+	return name;
+}
+
+/**
+ * Invalidate the cached host session, forcing re-detection on next call.
+ * Use when a tmux operation fails with "can't find session".
+ */
+export function invalidateHostSession(): void {
+	cachedHostSession = undefined;
 }
 
 // ---------------------------------------------------------------------------
