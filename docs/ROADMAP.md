@@ -53,8 +53,8 @@ Replaced `@pi_staging_index` two-swap return-address pattern with `@pi_name` sin
 
 ## High priority
 
-### OUTPUT-TRACK: Output tracking via pipe-pane
-Completion notifications silently truncate to 20 lines with no indication of what was omitted. The model cannot make informed decisions about when to peek. Implement `tmux pipe-pane` to per-pane log files, track byte offsets per command, and include omission metadata in notifications. See `docs/engineering/open-issues.md` OUTPUT-TRACK.
+### ~~OUTPUT-TRACK~~ (done)
+Completion notifications and peek now report truncation metadata (`N lines total, showing last M`). Full scrollback captured via `capture-pane -S -`. Peek accepts a `limit` parameter.
 
 ### COMPLETE-BUILTIN: Fix completion tracker for shell builtins
 Builtins like `read` and `wait` cause premature completion because `pane_current_command` stays as the shell name. The model reports commands done before the operator has interacted. See `docs/engineering/open-issues.md` COMPLETE-BUILTIN.

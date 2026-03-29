@@ -62,19 +62,17 @@ interface HostTarget {
 ```
 One object, one parameter, impossible to partially forget. Done as part of LEGACY-GATE phase 2.
 
+### OUTPUT-TRACK (fixed)
+
+Completion notifications showed the last 20 lines of output with no indication of how many lines were omitted. The model could not distinguish "20 lines total" from "20 lines out of 500."
+
+Fixed by capturing full scrollback (`capture-pane -S -`) in both completion notifications and peek. Completion messages now include `(N lines total, showing last 20)` when output is truncated. Peek accepts a `limit` parameter (default 50) and reports truncation metadata when output exceeds the limit.
+
+Note: uses tmux scrollback buffer (typically 2000 lines). For commands that produce more output than the scrollback limit, older output is still lost. A future enhancement could use `pipe-pane` to log to files, but the scrollback approach covers the common case.
+
 ---
 
 ## Active issues
-
-### OUTPUT-TRACK: completion notifications do not report truncation
-
-**Status:** open
-
-**What happens:** Command completion notifications show the last 20 lines of output with no indication of how many lines were omitted.
-
-**Why this matters:** The model cannot distinguish "20 lines total" from "20 lines out of 500." A test suite that failed early but passed at the end looks like it passed.
-
-**Fix direction:** Use `tmux pipe-pane` to log all pane output to a file. Record byte offset before sending the command. On completion, compute total lines from the log. Include "X total lines, showing last N" in the notification. Support ranged `peek` to read any portion.
 
 ---
 
