@@ -33,7 +33,8 @@
 - Include metadata: total lines since command start, how many lines were omitted
 - The model can then decide to `peek` with a range if it needs more context
 - `peek` must support `start` and `end` line params for arbitrary range reads via `tmux capture-pane -p -S {start} -E {end}`
-- Scrollback must be continuous (no gaps) — tmux handles this natively with `history-limit`
+- Use `tmux display-message -t %ID -p '#{history_size}'` to report total lines available
+- Note: if output exceeds `history-limit` (50000), oldest lines are silently lost
 
 ## 5. `attach` returns "View pane already visible" without verifying visibility
 
