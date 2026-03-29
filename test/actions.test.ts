@@ -211,7 +211,7 @@ describe("tmux mode", () => {
 			if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index} #{pane_id}\"")) return "0 %1\n1 %42\n";
 			if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) return "0\t%1\tzsh\t1001\n1\t%42\tzsh\t4242\n";
 			if (cmd.includes("display -p -t =5:0 \"#{@pi_visible_owner_session}\t#{@pi_visible_staging_window}\"")) return "test-abc\t1\n";
-			if (cmd.includes("list-panes -t =test-abc-stg -F \"#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) {
+			if (cmd.includes("list-panes -s -t =test-abc-stg -F \"#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) {
 				return "0\tlogs\t%51\tnode\t5151\n1\tbuild\t%99\tzsh\t9999\n2\tci\t%77\tbash\t7777\n";
 			}
 			if (cmd.includes("pgrep -P 4242")) throw new Error("no children");

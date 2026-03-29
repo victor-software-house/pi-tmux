@@ -235,7 +235,7 @@ export function listManagedPanes(ownerSession: string, hostSession = ownerSessio
 	const visibleWindowIndex = getVisibleStagingWindow(ownerSession, hostSession, hostWindowIndex);
 	const viewPane = visibleWindowIndex === undefined ? null : getViewPaneInfo(hostSession, hostWindowIndex);
 	const raw = tryRun(
-		`tmux list-panes -t ${tmuxSessionTarget(staging)} -F "#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}"`,
+		`tmux list-panes -s -t ${tmuxSessionTarget(staging)} -F "#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}"`,
 	);
 	if (!raw) return [];
 
