@@ -1,5 +1,20 @@
 # pi-tmux Roadmap
 
+## Suggested execution order
+
+1. **PANE-META** — Replace pane metadata with staging window queries. This unblocks list, peek, close, focus, resume, and mute. Every other improvement depends on these actions working correctly.
+2. **ATTACH-VERIFY** — Small fix, eliminates a class of confusing "already visible" false positives. Do it while touching the terminal code.
+3. **Legacy gate** (phase 1) — Add the runtime gate so the tool stops pretending to work outside tmux. No code deletion, just a check and a warning. This prevents wasted debugging time on a path that will never be supported.
+4. **Legacy removal** (phases 2-3) — Delete dead code, flatten the branching, rename files. Do this after the gate has been live for a bit. Easier to do once PANE-META is fixed because actions.ts will already be heavily edited.
+5. **OUTPUT-TRACK** — Implement pipe-pane logging and output metadata. Depends on PANE-META being done (peek must work by name first). This changes how the model interacts with command output, so it needs stable pane identity.
+6. **COMPLETE-BUILTIN** — Fix premature completion for builtins. Independent of other work but lower urgency — most commands are not interactive builtins.
+7. **FOCUS-LEAK** — Cosmetic. Fix after the swap-pane flow is stable.
+8. **ctx.signal, prepareArguments, message delivery** — Pi API integrations. Do when convenient.
+
+Items within the same priority tier can be reordered. Items across tiers should not — each tier assumes the previous one is done.
+
+---
+
 ## Critical — fix before further feature work
 
 ### Replace pane metadata with staging window queries
