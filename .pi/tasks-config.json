@@ -1,0 +1,5 @@
+{
+  "taskScope": "session",
+  "autoCascade": true,
+  "autoClearCompleted": "on_list_complete"
+}

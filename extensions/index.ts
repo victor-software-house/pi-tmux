@@ -10,7 +10,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import type { AttachLayout, ShellMode, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
-import { hasAttachedPane } from "./terminal-tmux.js";
+import { hasAttachedPane, checkTmuxEnvironment } from "./terminal-tmux.js";
 import { trackCompletionByPane, registerSilence, stopAll } from "./signals.js";
 import { actionRun, actionAttach, actionFocus, actionClose, actionPeek, actionList, actionKill, actionMute } from "./actions.js";
 import type { HostTarget } from "./actions.js";
@@ -86,6 +86,11 @@ export default function (pi: ExtensionAPI) {
 		currentSettings = loadSettings();
 		initCommandSettings(currentSettings);
 		rehydrate(ctx.sessionManager);
+
+		// Surface tmux environment warnings once per session
+		for (const warning of checkTmuxEnvironment()) {
+			ctx.ui.notify(warning, "warning");
+		}
 	});
 
 	pi.on("session_switch", async (_event, ctx) => {

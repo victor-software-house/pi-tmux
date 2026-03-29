@@ -72,5 +72,13 @@ export function checkTmuxEnvironment(): string[] {
 		);
 	}
 
+	// Check for extended-keys support
+	const extendedKeys = tryRun("tmux show-options -s extended-keys 2>/dev/null");
+	if (extendedKeys === null) {
+		warnings.push(
+			"tmux extended-keys not available. Add 'set -s extended-keys on' to ~/.tmux.conf for better key handling.",
+		);
+	}
+
 	return warnings;
 }
