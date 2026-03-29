@@ -1,70 +1,85 @@
 # Open Issues — tmux CC mode
 
-## 1. Managed pane ID tracking points to view pane, not staging pane
+## Context
 
-**Symptom:** `peek` by name fails after run. Tool returns `%20` (view pane in host session) instead of the staging pane (`%19`).
+pi-tmux runs commands in a hidden **staging session** (`pi-tmux-HASH-stg`) and displays output in a **view pane** (pane 1 of window 0 in the CC-attached host session). `swap-pane` moves staging panes in and out of the view pane to switch between commands without creating new tabs.
 
-**Root cause:** `ensureViewPane` creates pane 1 in host session via `split-window -P -F "#{pane_id}"`. Then `actionRun` likely captures this ID instead of the staging pane ID. After `swap-pane`, the pane IDs shuffle between host and staging.
+This architecture works at the tmux level: commands execute, output is visible, and swap-pane correctly rotates content. However, the metadata and tracking layers above it are broken in several ways that make the tool unreliable for the model and the operator.
 
-**Direction:** `markManagedPane` and `getPaneId` should always track the **staging** pane ID, not the view pane. The view pane is a display slot — its content changes via `swap-pane`. Track panes by their staging session position, not by ID in the host.
+---
 
-## 2. `@pi_managed` / `@pi_title` pane metadata is fundamentally broken with swap-pane
+## 1. Pane metadata (`@pi_managed`, `@pi_title`) does not survive swap-pane
 
-**Symptom:** After multiple runs, `list`, `peek`, `close`, `focus` by name or index all fail or resolve to wrong panes. `@pi_title` ends up on the wrong pane.
+**What happens:** After running two or more commands, `list`, `peek` by name, `close` by name or index, `focus` by name, and `resume` by name all fail or resolve to wrong panes.
 
-**Root cause:** `swap-pane` moves pane IDs between positions but `@pi_*` user options follow the pane ID, not the staging window position. After each swap, metadata is on the wrong pane.
+**Why this is a problem:** The model cannot reliably address panes by the names it gave them. It runs `name: "build"`, then `peek window: "build"` fails or returns output from a different command. This makes the tool untrustworthy — the model cannot verify its own work.
 
-**Confirmed:** Staging **window names** (`tmux list-windows -F '#{window_name}'`) are always correct and survive swaps. The staging windows are the real source of truth.
+**Root cause:** `swap-pane` exchanges pane IDs between the staging session and the view pane. tmux user options (`@pi_managed`, `@pi_title`, `@pi_owner_session`) are attached to pane IDs, not to window positions. After each swap, the metadata ends up on the wrong pane in the wrong window.
 
-**Direction:** Remove `@pi_managed` / `@pi_title` / `@pi_owner_session` pane metadata entirely. Replace `listManagedPanes` / `resolveManagedPane` with staging window queries:
-- Resolve by name: `tmux list-windows -t stg -F '#{window_index}\t#{window_name}'` and match
-- Resolve by index: direct staging window index
-- `peek`: `capture-pane -t stg:{index}.0`
-- `close`: `kill-window -t stg:{index}`
-- `list`: `list-windows -t stg`
-- This eliminates all pane ID tracking issues in one change
+**Observed:** Staging **window names** (set via `tmux rename-window`) are always correct after any number of swaps. `tmux list-windows -t stg -F '#{window_index}\t#{window_name}'` consistently reflects what was created, regardless of swap history.
 
-## 4. Completion notifications truncate output to 20 lines
+**Fix direction:** Replace all pane-ID-based metadata (`@pi_managed`, `@pi_title`, `@pi_owner_session`, `listManagedPanes`, `resolveManagedPane`) with staging window queries. The staging window index and name are the stable identifiers. Peek, close, list, focus, and resume should all resolve against staging windows, not pane metadata.
 
-**Symptom:** Model receives only the last 20 non-empty lines of command output on completion. Cannot debug failures from long commands.
+**Verification:** After fix, this sequence must work:
+1. `run name: "a"` → `run name: "b"` → `run name: "c"`
+2. `focus window: "a"` → view shows command A's output
+3. `peek window: "b"` → returns command B's output
+4. `close window: "c"` → closes only command C
+5. `list` → shows A and B with correct names
+6. `resume name: "a"` → sends keystrokes to command A's pane
 
-**Root cause:** `filterPaneOutput()` in `signals.ts` slices to 20 lines. `capture-pane -S -50` only grabs 50 lines from scrollback.
+---
 
-**Direction:**
-- Keep current notification behavior (last N lines of output)
-- Include metadata: total lines since command start, how many lines were omitted
-- The model can then decide to `peek` with a range if it needs more context
-- `peek` must support `start` and `end` line params for arbitrary range reads via `tmux capture-pane -p -S {start} -E {end}`
-**Rejected: `history_size + cursor_y` tracking** — fragile. Breaks on pane resize (text reflow), terminal clear, alternate screen apps, and `history-limit` overflow.
+## 2. Completion notifications do not tell the model what was omitted
 
-**Recommended: `tmux pipe-pane` to log files:**
-- On pane creation: `tmux pipe-pane -t %ID 'cat >> /tmp/pi-tmux/pane-%ID.log'`
-- Before `send-keys`: record byte offset `cmd_start = wc -c < logfile`
-- On completion: read from `cmd_start` with `tail -c +$cmd_start logfile`
-- Immune to resize, clear, alternate screen, scrollback limits
-- Random access via file seek — model can read any range
-- Notification includes last N lines + "X more lines from this command"
-- `peek` reads from the log file with offset/limit params, not `capture-pane`
-- Log files cleaned up on `kill` / session end
+**What happens:** When a command finishes, the notification includes the last 20 non-empty lines. If the command produced 500 lines of output, the model sees 20 and has no indication that 480 lines were dropped.
 
-## 5. Completion tracker fires prematurely for shell builtins (read, wait, etc.)
+**Why this is a problem:** The model cannot make an informed decision about whether to peek for more context. It might assume a test suite passed when the truncated tail only shows the last few passing tests, while failures scrolled off. The model needs to know: "this command produced N lines, you are seeing the last 20, use peek to read more."
 
-**Symptom:** `read -r` blocks for user input but the completion tracker sees `pane_current_command=zsh` and marks the command as finished.
+**Root cause:** `filterPaneOutput()` in `signals.ts` silently truncates to 20 lines. `capture-pane -S -50` only grabs 50 lines from scrollback. Neither the capture nor the notification includes any count of what was omitted.
 
-**Root cause:** Shell builtins don't change the foreground process name. The tracker checks `pane_current_command` for idle shell names (zsh, bash, etc.) and can't distinguish "shell waiting for builtin" from "shell idle after command".
+**Fix direction:** Before sending a command, record the output position. On completion, compute total lines produced by this specific command. Include in the notification: "X total lines, showing last N" so the model can decide whether to peek. `peek` should support range parameters so the model can read any portion of the command's output.
 
-**Direction:** Complement `pane_current_command` with `pane_pid` subprocess check (`pgrep -P $pid`) or use shell integration markers to detect true command completion. Alternatively, use `pipe-pane` logs to detect the prompt appearing after command output.
+**Output logging:** `capture-pane` with `history_size + cursor_y` tracking is fragile (breaks on resize, clear, alternate screen). `tmux pipe-pane` to per-pane log files is more robust: immune to reflow, supports random access via file offsets, and survives scrollback overflow.
 
-## 6. Focus reporting escape sequences leak into swapped panes
+**Verification:** After fix, run a command that produces 200 lines. The notification must state "200 lines, showing last 20" (or similar). `peek` with a range must return any requested portion.
 
-**Symptom:** `^[[I` (focus gained) and `^[[O` (focus lost) appear as raw text in the view pane when clicking in/out.
+---
 
-**Root cause:** `focus-events on` in global tmux config causes tmux to send focus sequences to panes. Swapped-in panes with blocking commands (read, sleep) don't consume them, so they render as raw text.
+## 3. Completion tracker fires prematurely for shell builtins
 
-**Direction:** Send `printf '\e[?1004l'` (disable focus reporting) to the view pane after each swap. Or set `focus-events off` per-pane if tmux supports it.
+**What happens:** Commands like `read -r REPLY` block waiting for user input, but the completion tracker immediately marks the command as finished.
 
-## 7. `attach` returns "View pane already visible" without verifying visibility
+**Why this is a problem:** The model reports the command is done when the operator hasn't had a chance to interact. Silence timeout notifications, which exist specifically for interactive commands, never fire because the tracker already declared completion.
 
-**Symptom:** `attach` says visible but user may not see a split if the view pane was killed externally.
+**Root cause:** `read`, `wait`, and other shell builtins run inside the shell process. `pane_current_command` remains `zsh` (or `bash`), which the tracker interprets as "idle shell = command finished." The tracker cannot distinguish a shell waiting for a builtin from a shell that has returned to its prompt.
 
-**Direction:** Before returning "already visible", verify pane 1 exists in host `0:` via `list-panes`. If missing, recreate.
+**Fix direction:** The tracker needs a secondary signal beyond `pane_current_command`. Options include: checking for child processes via `pgrep -P $pid`, detecting the shell prompt pattern in captured output, or using shell integration escape sequences that mark prompt boundaries. The `pipe-pane` log approach (from issue #2) could also detect the prompt appearing after command output.
+
+**Verification:** After fix, `run command: "read -r X" silenceTimeout: 10` must NOT fire a completion notification while `read` is blocking. The silence notification must fire after 10 seconds of no output.
+
+---
+
+## 4. Focus reporting escape sequences leak into swapped panes
+
+**What happens:** `^[[I` (focus gained) and `^[[O` (focus lost) appear as visible raw text in the view pane when the operator clicks in and out of it.
+
+**Why this is a problem:** The operator sees garbage characters in their command output. The model may see them in peek output and misinterpret them as command output. This degrades trust in the output display.
+
+**Root cause:** The global tmux config has `focus-events on`, which is needed for many terminal applications. tmux sends focus sequences to panes. When a swapped-in pane is running a blocking command (sleep, read, etc.), the process does not consume these sequences, so they render as raw text.
+
+**Fix direction:** After each `swap-pane` into the view, send the "disable focus reporting" sequence (`\e[?1004l`) to the view pane. This suppresses focus sequences for that pane without affecting the global setting. Alternatively, investigate per-pane focus-events control if tmux supports it.
+
+**Verification:** After fix, click rapidly in and out of the view pane while a `sleep 999` is running. No `^[[I` or `^[[O` characters should appear.
+
+---
+
+## 5. `attach` does not verify the view pane actually exists
+
+**What happens:** `attach` returns "View pane already visible" or "Already attached" based on an in-memory flag, without checking whether the view pane (pane 1 of window 0 in the host session) still exists in tmux.
+
+**Why this is a problem:** If the operator manually closes the split, or if the view pane dies for any reason, `attach` reports success but the operator sees nothing. The model believes it has a visible terminal and proceeds accordingly.
+
+**Fix direction:** Before returning "already visible", verify pane 1 exists via `tmux list-panes -t host:0`. If missing, recreate it. Reset the in-memory tracking flag when the pane is confirmed dead.
+
+**Verification:** After fix: run a command (creates view pane), manually close the split in iTerm2, then call `attach`. It must recreate the split, not report "already visible."
