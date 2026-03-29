@@ -72,6 +72,7 @@ Example: a split stopped appearing → `git log -p -- extensions/terminal-tmux.t
 - Every behavioral change gets a live test in tmux CC
 - Run the command, then ask the operator what they see
 - The operator's answer is the only valid signal
+- Use explicit questioning format for every live check so a cold reader can follow the validation sequence
 
 Example:
 ```
@@ -112,6 +113,14 @@ When a test reveals a problem:
   ```bash
   cd ~/.pi/agent/git/.../pi-tmux && git pull
   ```
+- **If the operator must reload Pi for the new code to run, stop before final live verification.**
+  1. finish the implementation slice
+  2. run typecheck and tests
+  3. commit and push
+  4. pull the installed copy under `~/.pi/agent/git/.../pi-tmux`
+  5. tell the operator to reload Pi
+  6. only then run the final tmux CC verification sequence with the operator
+- **Do not ask whether to do this workflow.** If the change needs a reload before live validation, follow it automatically and report where you stopped.
 - **Tag stable checkpoints:**
   ```bash
   git tag -a v1.3.1-pane-meta -m "PANE-META fixed, verification sequence passes"
