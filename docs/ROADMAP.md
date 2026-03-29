@@ -44,8 +44,8 @@ Check for jixiuf/tmux fork (`kitty-keys` option) and warn if not present. Surfac
 
 ## Medium priority
 
-### HOST-MISMATCH: Map Pi's tmux host session to the tab Pi is actually running in
-The current host-session detection uses tmux's session name, but live verification showed that this can point at a tmux integration context different from the visible iTerm2 tab containing Pi. Before running visibility-sensitive validation, identify Pi's own tab deterministically by matching `TMUX_PANE` scrollback from `tmux capture-pane` against candidate buffers from `it2api get-buffer`. See `docs/engineering/open-issues.md` HOST-MISMATCH.
+### HOST-MISMATCH: Map Pi's tmux host session and window to the tab Pi is actually running in
+The current host detection effectively assumes host window `0`, but manual verification proved Pi was running in a different window inside the same tmux session. Use `TMUX_PANE` as the primary source of truth for Pi's own tmux location, then use `tmux capture-pane` plus `it2api get-buffer` only as external confirmation that the operator-visible tab matches that pane. See `docs/engineering/open-issues.md` HOST-MISMATCH.
 
 ### CTX-SIGNAL: Wire ctx.signal for cancellation support
 Pi 0.63.2 added `ctx.signal` to extension contexts. Currently `actionRun` ignores the signal parameter. Wire it to kill the staging pane when the user cancels a tool call mid-execution.

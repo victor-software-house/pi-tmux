@@ -99,27 +99,29 @@ This architecture works at the tmux level: commands execute, output appears in t
 
 **Why this is a problem:** The tmux tool reports success and the model believes the operator can see the command output, but the output is rendered in a different iTerm2 tmux integration context than the one the operator is actually looking at. This breaks the core requirement that the operator must see what the model does.
 
-**Current hypothesis:** The extension is targeting the correct tmux host session from tmux's perspective, but that host session is attached to a different iTerm2 tmux integration window than the active Pi tab. In other words, "host session name detected from tmux" is not sufficient to identify the operator-visible iTerm2 location.
+**Root cause confirmed by manual tmux commands:** The extension targets the correct tmux host session, but the wrong tmux **window** within that session. Pi itself was running in session `13`, window `2`, pane `%58`, while the extension created and swapped the view pane in session `13`, window `0`. A manual `split-window -h -t =13:2` immediately produced a visible split in Pi's tab. A manual `swap-pane` then proved that the command output became visible only when the correct pane was swapped into that split. The operator never sees tool-created output because the code hardcodes window `0` as the host viewport.
 
-**Deterministic check discovered during investigation:** Do not use focus alone to identify Pi's tab. The reliable check is:
+**Deterministic check discovered during investigation:** Do not use focus alone to identify Pi's tab. Prefer environment variables when available. The reliable check is:
 1. read the current `TMUX_PANE` from Pi's process environment
-2. capture that pane's visible content with `tmux capture-pane -p -t $TMUX_PANE`
-3. enumerate visible iTerm2 sessions with `it2api list-sessions`
-4. fetch each candidate buffer with `it2api get-buffer <session-id>`
-5. match the captured tmux pane content against the iTerm2 buffers and pick the strongest match
+2. treat that pane as the source of truth for Pi's own tmux location (`session_name`, `window_index`, `pane_index`)
+3. capture that pane's visible content with `tmux capture-pane -p -t $TMUX_PANE`
+4. enumerate visible iTerm2 sessions with `it2api list-sessions`
+5. fetch each candidate buffer with `it2api get-buffer <session-id>`
+6. match the captured tmux pane content against the iTerm2 buffers and pick the strongest match
 
-This identifies **the tab Pi is running in**, not merely the tab that currently has focus.
+This identifies **the tab Pi is running in**, not merely the tab that currently has focus. If `TMUX_PANE` is present, use it as the primary source of truth instead of re-deriving host location from broader tmux session queries.
 
-**Fix direction:** Determine how to map the active Pi tab to the correct iTerm2 tmux integration window before creating or swapping the view pane. The investigation should compare:
-- the current Pi tab/session from the deterministic `TMUX_PANE` + `it2api get-buffer` content match
+**Fix direction:** Stop assuming host window `0`. Resolve Pi's actual host location from `TMUX_PANE`, then target that session/window pair consistently for `ensureViewPane`, `swapViewPane`, `attach`, visible-window bookkeeping, and kill/close logic. The investigation should compare:
+- the current Pi tab/session from `TMUX_PANE` first, then the deterministic `it2api get-buffer` content match as external confirmation
 - the current focus from `it2api show-focus` only as a secondary signal
 - the tmux integration owner from `it2api list-tmux-connections`
-- the host session cached in `state.ts`
-- whether `/tmux-promote` or the current startup path leaves Pi outside the tmux integration window while the hidden tmux host session lives elsewhere
+- the host session and host window cached in `state.ts`
+- whether any remaining code path still hardcodes `:0` for host-pane operations
 
 **Verification:** After fix:
 1. Identify Pi's own tab with the deterministic `TMUX_PANE` + buffer-match check
-2. Run `tmux run` from that tab
-3. Ask the operator whether the split appears in that same Pi tab/window
-4. Confirm tmux and iTerm2 agree on the visible host location
-5. Repeat after Pi reload to ensure the mapping is stable across restarts
+2. Confirm Pi's own tmux location, for example `session 13 window 2 pane %58`
+3. Run `tmux run` from that tab
+4. Ask the operator whether the split appears in that same Pi tab/window
+5. Confirm the view pane was created in Pi's actual host window, not window `0`
+6. Repeat after Pi reload to ensure the mapping is stable across restarts
