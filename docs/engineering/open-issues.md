@@ -29,11 +29,11 @@
 **Root cause:** `filterPaneOutput()` in `signals.ts` slices to 20 lines. `capture-pane -S -50` only grabs 50 lines from scrollback.
 
 **Direction:**
-- Completion notifications should be minimal: "finished" + pane name. The model reads output via `peek`.
+- Keep current notification behavior (last N lines of output)
+- Include metadata: total lines since command start, how many lines were omitted
+- The model can then decide to `peek` with a range if it needs more context
 - `peek` must support `start` and `end` line params for arbitrary range reads via `tmux capture-pane -p -S {start} -E {end}`
 - Scrollback must be continuous (no gaps) — tmux handles this natively with `history-limit`
-- Current hardcoded `-S -50` and `filterPaneOutput(20)` must be replaced with parameterized capture
-- The notification should not attempt to include output — just signal completion and let the model decide what to read
 
 ## 5. `attach` returns "View pane already visible" without verifying visibility
 
