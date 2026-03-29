@@ -6,7 +6,7 @@
  * cwd drift, fork, and tree navigation.
  */
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
-import { deriveSessionName, deriveStagingName, isSessionAlive, resolveProjectRoot } from "./session.js";
+import { deriveSessionName, deriveStagingName, isSessionAlive, resolveProjectRoot, tryRun } from "./session.js";
 
 /** The read-only session manager exposed via ExtensionContext. */
 type SessionReader = ExtensionContext["sessionManager"];
@@ -20,6 +20,9 @@ const CUSTOM_TYPE = "pi-tmux-state";
 export interface TmuxSessionStateV1 {
 	version: 1;
 	tmuxSessionName: string;
+	/** When running inside tmux CC mode, the name of the CC-attached host session
+	 *  (e.g. "0"). View panes live here. Null when not in tmux mode. */
+	hostSessionName: string | null;
 	/** Informational only — the cwd that seeded the initial name. Not used for routing. */
 	createdFromCwd: string;
 	updatedAt: number;
@@ -76,6 +79,16 @@ function isValidState(data: unknown): data is TmuxSessionStateV1 {
 	);
 }
 
+/**
+ * Detect the current tmux host session name.
+ * Returns the session name if running inside tmux, null otherwise.
+ */
+function detectHostSession(): string | null {
+	if (!process.env.TMUX) return null;
+	const raw = tryRun("tmux display-message -p '#{session_name}'");
+	return raw?.trim() || null;
+}
+
 /** Persist state as a new session entry. */
 function saveState(pi: ExtensionAPI, state: TmuxSessionStateV1): void {
 	pi.appendEntry<TmuxSessionStateV1>(CUSTOM_TYPE, state);
@@ -101,6 +114,8 @@ export function rehydrate(sessionManager: SessionReader): void {
 export interface ResolvedBinding {
 	tmuxSessionName: string;
 	stagingSessionName: string;
+	/** The CC-attached host session, or same as tmuxSessionName when not in CC mode. */
+	hostSessionName: string;
 	/** True if the tmux session was just (re)created by the resolver. */
 	recreated: boolean;
 }
@@ -135,6 +150,7 @@ export function getOrCreateBinding(
 		state = {
 			version: 1,
 			tmuxSessionName: deriveSessionName(root),
+			hostSessionName: detectHostSession(),
 			createdFromCwd: root,
 			updatedAt: Date.now(),
 		};
@@ -144,9 +160,11 @@ export function getOrCreateBinding(
 	// Validate live tmux session and recreate if missing
 	const recreated = ensureTmuxSessionExists(state.tmuxSessionName);
 
+	const host = state.hostSessionName ?? state.tmuxSessionName;
 	return {
 		tmuxSessionName: state.tmuxSessionName,
 		stagingSessionName: deriveStagingName(state.tmuxSessionName),
+		hostSessionName: host,
 		recreated,
 	};
 }
@@ -185,6 +203,7 @@ export function notifySessionCreated(
 	const state: TmuxSessionStateV1 = {
 		version: 1,
 		tmuxSessionName,
+		hostSessionName: detectHostSession(),
 		createdFromCwd: cwd,
 		updatedAt: Date.now(),
 	};

@@ -41,6 +41,8 @@ export interface RunOpts {
 	defaultLayout: string;
 	shellMode: ShellMode;
 	target?: number | string;
+	/** The CC-attached host session for view panes (tmux mode). Defaults to session. */
+	hostSession?: string;
 }
 
 export async function actionRun(session: string, opts: RunOpts): Promise<ActionResult> {
@@ -50,8 +52,9 @@ export async function actionRun(session: string, opts: RunOpts): Promise<ActionR
 	// Tmux mode: staging session + view pane swap (zero flash)
 	// -------------------------------------------------------------------
 	if (process.env.TMUX) {
+		const host = opts.hostSession ?? session;
 		const staging = ensureStagingSession(session, opts.cwd);
-		ensureViewPane(session, opts.cwd, opts.defaultLayout);
+		ensureViewPane(host, opts.cwd, opts.defaultLayout);
 
 		const managedPanes = listManagedPanes(session);
 		const visiblePane = managedPanes.find((pane) => pane.visible);
@@ -66,7 +69,7 @@ export async function actionRun(session: string, opts: RunOpts): Promise<ActionR
 			const location = getPaneLocation(pane.paneId);
 			const shouldShow = opts.autoFocus === "always";
 			if (shouldShow && location?.session === staging) {
-				swapViewPane(session, staging, location.windowIndex);
+				swapViewPane(host, staging, location.windowIndex);
 			}
 			const visible = shouldShow ? true : pane.visible;
 			return {
@@ -129,7 +132,7 @@ export async function actionRun(session: string, opts: RunOpts): Promise<ActionR
 
 		const shouldShow = opts.autoFocus === "always";
 		if (shouldShow) {
-			swapViewPane(session, staging, stagingIdx);
+			swapViewPane(host, staging, stagingIdx);
 		}
 
 		const verb = lifecycle === "fresh-created" ? "Started fresh pane" : "Respawned pane";
@@ -235,16 +238,24 @@ export async function actionRun(session: string, opts: RunOpts): Promise<ActionR
 export function actionAttach(
 	session: string,
 	cwd: string,
-	opts: { layout: AttachLayout; window?: number | string },
+	opts: { layout: AttachLayout; window?: number | string; hostSession?: string },
 ): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 
-	// In tmux mode, attach means ensuring the visible CC split exists.
-	// If a specific window is requested, prepare the split first, then swap it in.
+	// In tmux mode, attach creates a visible split/tab via CC.
 	if (process.env.TMUX) {
-		ensureViewPane(session, cwd, opts.layout);
-		if (opts.window !== undefined) return actionFocus(session, opts.window);
-		return { ok: true, message: "View pane ready." };
+		const host = opts.hostSession ?? session;
+		if (hasAttachedPane(host)) {
+			if (opts.window !== undefined) return actionFocus(session, opts.window, host);
+			return { ok: true, message: "Already attached." };
+		}
+		const { openTerminal } = require("./terminal-tmux.js") as typeof import("./terminal-tmux.js");
+		const msg = openTerminal(host, opts.layout);
+		if (opts.window !== undefined) {
+			const focus = actionFocus(session, opts.window, host);
+			return { ok: focus.ok, message: `${msg}\n${focus.message}` };
+		}
+		return { ok: true, message: msg };
 	}
 
 	const targetIdx = opts.window !== undefined ? resolveWindow(session, opts.window) : undefined;
@@ -266,7 +277,7 @@ export function actionAttach(
 // focus — switch tmux window
 // ---------------------------------------------------------------------------
 
-export function actionFocus(session: string, target: number | string): ActionResult {
+export function actionFocus(session: string, target: number | string, hostSession?: string): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 
 	if (process.env.TMUX) {
@@ -279,7 +290,7 @@ export function actionFocus(session: string, target: number | string): ActionRes
 		if (!location || location.session !== deriveStagingName(session)) {
 			return { ok: false, message: `Pane ${pane.paneId} is not in a swappable staging location.` };
 		}
-		swapViewPane(session, location.session, location.windowIndex);
+		swapViewPane(hostSession ?? session, location.session, location.windowIndex);
 		return { ok: true, message: `Focused pane ${pane.paneId} — ${pane.title}`, details: { session, paneId: pane.paneId, window: location.windowIndex } };
 	}
 
@@ -370,13 +381,15 @@ export function actionList(session: string): ActionResult {
 // kill — terminate session
 // ---------------------------------------------------------------------------
 
-export function actionKill(session: string): ActionResult {
+export function actionKill(session: string, hostSession?: string): ActionResult {
 	if (!isSessionAlive(session)) return { ok: false, message: `No active session '${session}'.` };
 	if (process.env.TMUX) {
-		// Kill the staging session and the view pane
+		const host = hostSession ?? session;
 		const staging = deriveStagingName(session);
 		tryRun(`tmux kill-session -t ${tmuxSessionTarget(staging)}`);
-		tryRun(`tmux kill-pane -t ${tmuxSessionTarget(session)}:0.1`);
+		tryRun(`tmux kill-pane -t ${tmuxSessionTarget(host)}:0.1`);
+		const { closeAttachedSessions: closeTmux } = require("./terminal-tmux.js") as typeof import("./terminal-tmux.js");
+		closeTmux(host);
 		return { ok: true, message: `Killed command session ${staging}.` };
 	}
 
@@ -421,7 +434,9 @@ export function actionClear(session: string): ActionResult {
 
 	const remaining = listWindows(cmdSession).length;
 	if (process.env.TMUX && remaining === 0) {
-		tryRun(`tmux kill-pane -t ${tmuxSessionTarget(session)}:0.1`);
+		// hostSession not available here — detect from env
+		const host = tryRun("tmux display-message -p '#{session_name}'")?.trim() ?? session;
+		tryRun(`tmux kill-pane -t ${tmuxSessionTarget(host)}:0.1`);
 	}
 	return { ok: true, message: `Cleared ${idle.length} idle window(s).` };
 }

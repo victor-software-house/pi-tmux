@@ -53,8 +53,8 @@ describe("loadPersistedState()", () => {
 	});
 
 	test("returns the latest valid state", () => {
-		const old: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "old-abc", createdFromCwd: "/old", updatedAt: 1000 };
-		const latest: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "new-def", createdFromCwd: "/new", updatedAt: 2000 };
+		const old: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "old-abc", hostSessionName: null, createdFromCwd: "/old", updatedAt: 1000 };
+		const latest: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "new-def", hostSessionName: null, createdFromCwd: "/new", updatedAt: 2000 };
 		const sm = fakeSessionManager([
 			makeEntry("pi-tmux-state", old),
 			makeEntry("pi-tmux-state", latest),
@@ -63,7 +63,7 @@ describe("loadPersistedState()", () => {
 	});
 
 	test("skips malformed entries and returns valid one", () => {
-		const valid: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "good-abc", createdFromCwd: "/good", updatedAt: 1000 };
+		const valid: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "good-abc", hostSessionName: null, createdFromCwd: "/good", updatedAt: 1000 };
 		const sm = fakeSessionManager([
 			makeEntry("pi-tmux-state", valid),
 			makeEntry("pi-tmux-state", { version: 99, bad: true }),
@@ -73,7 +73,7 @@ describe("loadPersistedState()", () => {
 
 	test("skips entries with empty tmuxSessionName", () => {
 		const sm = fakeSessionManager([
-			makeEntry("pi-tmux-state", { version: 1, tmuxSessionName: "", createdFromCwd: "/x", updatedAt: 1 }),
+			makeEntry("pi-tmux-state", { version: 1, tmuxSessionName: "", hostSessionName: null, createdFromCwd: "/x", updatedAt: 1 }),
 		]);
 		expect(loadPersistedState(sm)).toBeNull();
 	});
@@ -112,7 +112,7 @@ describe("getOrCreateBinding()", () => {
 		const persisted: TmuxSessionStateV1 = {
 			version: 1,
 			tmuxSessionName: "persisted-session-abc12345",
-			createdFromCwd: "/original/project",
+			hostSessionName: null, createdFromCwd: "/original/project",
 			updatedAt: 1000,
 		};
 
@@ -157,7 +157,7 @@ describe("rehydrate()", () => {
 	beforeEach(() => clearCache());
 
 	test("populates cache from session entries", () => {
-		const state: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "rehydrated-abc", createdFromCwd: "/x", updatedAt: 1 };
+		const state: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "rehydrated-abc", hostSessionName: null, createdFromCwd: "/x", updatedAt: 1 };
 		const sm = fakeSessionManager([makeEntry("pi-tmux-state", state)]);
 
 		expect(getCachedState()).toBeNull();
@@ -166,7 +166,7 @@ describe("rehydrate()", () => {
 	});
 
 	test("clearCache resets the cache", () => {
-		const state: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "abc", createdFromCwd: "/x", updatedAt: 1 };
+		const state: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "abc", hostSessionName: null, createdFromCwd: "/x", updatedAt: 1 };
 		const sm = fakeSessionManager([makeEntry("pi-tmux-state", state)]);
 		rehydrate(sm);
 		expect(getCachedState()).not.toBeNull();
@@ -195,7 +195,7 @@ describe("notifySessionCreated()", () => {
 	});
 
 	test("does not persist when already tracking the same session name", () => {
-		const existing: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "same-name", createdFromCwd: "/x", updatedAt: 1 };
+		const existing: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "same-name", hostSessionName: null, createdFromCwd: "/x", updatedAt: 1 };
 		const pi = fakeExtensionAPI();
 		const sm = fakeSessionManager([makeEntry("pi-tmux-state", existing)]);
 
@@ -205,7 +205,7 @@ describe("notifySessionCreated()", () => {
 	});
 
 	test("persists when session name changed", () => {
-		const existing: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "old-name", createdFromCwd: "/x", updatedAt: 1 };
+		const existing: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "old-name", hostSessionName: null, createdFromCwd: "/x", updatedAt: 1 };
 		const pi = fakeExtensionAPI();
 		const sm = fakeSessionManager([makeEntry("pi-tmux-state", existing)]);
 
@@ -228,7 +228,7 @@ describe("getPersistedSessionName()", () => {
 	});
 
 	test("returns the persisted session name", () => {
-		const state: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "my-session", createdFromCwd: "/x", updatedAt: 1 };
+		const state: TmuxSessionStateV1 = { version: 1, tmuxSessionName: "my-session", hostSessionName: null, createdFromCwd: "/x", updatedAt: 1 };
 		const sm = fakeSessionManager([makeEntry("pi-tmux-state", state)]);
 		expect(getPersistedSessionName(sm)).toBe("my-session");
 	});

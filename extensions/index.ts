@@ -75,6 +75,7 @@ export default function (pi: ExtensionAPI) {
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			const binding = getOrCreateBinding(pi, ctx.sessionManager, ctx.cwd);
 			const session = binding.tmuxSessionName;
+			const hostSession = binding.hostSessionName;
 
 			switch (params.action) {
 				case "run": {
@@ -94,6 +95,7 @@ export default function (pi: ExtensionAPI) {
 						defaultLayout: currentSettings.defaultLayout,
 						shellMode,
 						target: params.window,
+						hostSession,
 					});
 					if (!result.ok) return toToolResult(result);
 
@@ -147,6 +149,7 @@ export default function (pi: ExtensionAPI) {
 							const attach = actionAttach(session, ctx.cwd, {
 								layout: currentSettings.defaultLayout,
 								window: windowIndex as number,
+								hostSession,
 							});
 							message += "\n" + attach.message;
 						}
@@ -163,14 +166,14 @@ export default function (pi: ExtensionAPI) {
 						return toToolResult({ ok: false, message: "Error: attach is disabled in settings. Use /tmux attach manually." });
 					}
 					const layout = (params.mode as AttachLayout | undefined) ?? currentSettings.defaultLayout;
-					return toToolResult(actionAttach(session, ctx.cwd, { layout, window: params.window }));
+					return toToolResult(actionAttach(session, ctx.cwd, { layout, window: params.window, hostSession }));
 				}
 
 				case "focus": {
 					if (params.window === undefined) {
 						return toToolResult({ ok: false, message: "Error: 'window' is required for focus." });
 					}
-					return toToolResult(actionFocus(session, params.window));
+					return toToolResult(actionFocus(session, params.window, hostSession));
 				}
 
 				case "close": {
@@ -196,7 +199,7 @@ export default function (pi: ExtensionAPI) {
 					return toToolResult(actionList(session));
 
 				case "kill":
-					return toToolResult(actionKill(session));
+					return toToolResult(actionKill(session, hostSession));
 
 				case "mute": {
 					if (!flags.canMute) {
