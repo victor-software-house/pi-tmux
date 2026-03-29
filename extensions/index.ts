@@ -169,21 +169,21 @@ export default function (pi: ExtensionAPI) {
 						return toToolResult({ ok: false, message: "Error: attach is disabled in settings. Use /tmux attach manually." });
 					}
 					const layout = (params.mode as AttachLayout | undefined) ?? currentSettings.defaultLayout;
-					return toToolResult(actionAttach(session, ctx.cwd, { layout, window: params.window, hostSession }));
+					return toToolResult(actionAttach(session, ctx.cwd, { layout, window: params.window, hostSession, hostWindowIndex }));
 				}
 
 				case "focus": {
 					if (params.window === undefined) {
 						return toToolResult({ ok: false, message: "Error: 'window' is required for focus." });
 					}
-					return toToolResult(actionFocus(session, params.window, hostSession));
+					return toToolResult(actionFocus(session, params.window, hostSession, hostWindowIndex));
 				}
 
 				case "close": {
 					if (params.window === undefined) {
 						return toToolResult({ ok: false, message: "Error: 'window' is required for close. Use kill to close the entire session." });
 					}
-					return toToolResult(actionClose(session, params.window, hostSession));
+					return toToolResult(actionClose(session, params.window, hostSession, hostWindowIndex));
 				}
 
 				case "peek": {
@@ -195,14 +195,14 @@ export default function (pi: ExtensionAPI) {
 								: Number.isNaN(Number.parseInt(String(params.window), 10))
 									? String(params.window)
 									: Number.parseInt(String(params.window), 10);
-					return toToolResult(actionPeek(session, target, hostSession));
+					return toToolResult(actionPeek(session, target, hostSession, hostWindowIndex));
 				}
 
 				case "list":
-					return toToolResult(actionList(session, hostSession));
+					return toToolResult(actionList(session, hostSession, hostWindowIndex));
 
 				case "kill":
-					return toToolResult(actionKill(session, hostSession));
+					return toToolResult(actionKill(session, hostSession, hostWindowIndex));
 
 				case "mute": {
 					if (!flags.canMute) {
@@ -212,7 +212,7 @@ export default function (pi: ExtensionAPI) {
 						return toToolResult({ ok: false, message: "Error: 'window' target required for mute." });
 					}
 					const muteTarget = typeof params.window === "number" ? params.window : Number.isNaN(Number.parseInt(String(params.window), 10)) ? String(params.window) : Number.parseInt(String(params.window), 10);
-					return toToolResult(actionMute(session, muteTarget, hostSession));
+					return toToolResult(actionMute(session, muteTarget, hostSession, hostWindowIndex));
 				}
 
 				default:
