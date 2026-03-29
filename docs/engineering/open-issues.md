@@ -99,17 +99,16 @@ This architecture works at the tmux level: commands execute, output appears in t
 
 Result: staging `:1` has old shell, `:2` has `a`-pane, `:3` has `b`-pane, view has `c`-pane.
 
-**Fix direction:** The fix is deterministic because `@pi_visible_staging_window` already tracks which staging slot the current view pane came from. Before every new swap, restore the invariant first:
+**Fix direction:** Use a tmux pane user option as a permanent home-address label. Pane options (`set-option -p`) are properties of the pane ID and travel with the pane through any number of `swap-pane` operations. This is deterministic — no external tracker, no rotation, no state to get out of sync.
 
-1. Read `@pi_visible_staging_window` from the host window (e.g. returns `:2`)
-2. If a view pane exists, swap it back: `swap-pane -d -s host:W.1 -t staging:2.0`
-3. Now every pane is in its correct staging slot
-4. Swap the new pane in: `swap-pane -d -s host:W.1 -t staging:3.0`
-5. Update `@pi_visible_staging_window` to `3`
+1. When creating a staging pane, set `@pi_home_window` on the pane: `tmux set-option -p -t %PANE @pi_home_window INDEX`
+2. Before swapping a new pane into the view, read `@pi_home_window` from the pane currently in the view: `tmux display -p -t host:W.1 '#{@pi_home_window}'`
+3. Swap the current view pane back to its home: `swap-pane -d -s host:W.1 -t staging:HOME.0`
+4. Swap the new pane in: `swap-pane -d -s host:W.1 -t staging:NEW.0`
 
-This is a two-swap sequence (return + fetch) instead of the current single swap (fetch only). Step 2 is skipped when there is no previous visible pane (first run). The tracker makes this fully deterministic — no guessing, no rotation.
+The label sticks to the pane regardless of where it has been moved. Step 3 always returns the pane to the correct slot because the pane itself carries the answer. `@pi_visible_staging_window` on the host window becomes redundant for this purpose (though it may still be useful for quick lookups without querying the view pane).
 
-Implementation: update `swapViewPane()` in `session.ts` to accept the previous staging index from the tracker, perform the return swap, then the fetch swap. Callers already read and write the tracker via `setVisibleStagingWindow` / `getVisibleStagingWindow`.
+This is the same pane-option mechanism that caused the original PANE-META discovery problem, but used correctly: not for discovery (scanning all panes for a marker), but for identity (reading a label from a pane we already have a reference to).
 
 **Verification:** After fix, `run a`, `run b`, `run c`, then `peek window: a` must return `VERIFY-A`, `peek window: b` must return `VERIFY-B`, `peek window: c` must return `VERIFY-C`.
 
