@@ -4,7 +4,16 @@
 
 A Pi extension that provides a `tmux` tool for running and managing long-running commands in tmux sessions. Designed for iTerm2 CC (control mode) where Pi runs inside a tmux session.
 
-## Tenets
+## Architecture
+
+The extension uses two tmux sessions:
+
+- **Host session** — the CC-attached session Pi runs in. tmux assigns it a numeric name (e.g. `0`, `5`) when the session is created. The **view pane** (pane 1 of window 0) lives here — this is the visible split the operator sees alongside Pi's own pane.
+- **Staging session** (`{derived-name}-stg`) — hidden, not CC-attached. Each command runs in its own window here. `swap-pane` rotates staging windows in and out of the view pane to display different commands without creating new tabs.
+
+The host session name changes every time Pi restarts. It is detected once via `tmux display-message -p '#{session_name}'` on session start and cached in-memory for the lifetime of the Pi process. It is never persisted. The derived session name (project directory slug + md5 hash, e.g. `pi-tmux-be23e752`) is persisted in Pi session entries so the staging session can be located across tool calls.
+
+## Design tenets
 
 1. **tmux is the architecture, not an option.** Every code path assumes tmux CC mode. There is no supported non-tmux mode. Legacy code exists only to support `/tmux-promote`, which moves the Pi process from a bare terminal into a tmux CC session. Do not add `if (process.env.TMUX)` branches — remove them.
 
@@ -22,72 +31,30 @@ A Pi extension that provides a `tmux` tool for running and managing long-running
 
 8. **State is initialized once and cached.** Host session name, settings, and the derived tmux session name are resolved on session start and cached in-memory for the lifetime of the Pi process. Re-detection of the host session happens only when a tmux operation fails, with a maximum of 3 retries before giving up. Volatile runtime values (host session name) are never written to Pi session entries — only the derived session name and the originating cwd are persisted.
 
-## Architecture
+## Working practices
 
-In tmux CC mode, the extension uses two sessions:
-- **Host session** — the CC-attached session Pi runs in (auto-detected, numeric name like `0`, `5`). The view pane (visible split) lives here as pane 1 of window 0.
-- **Staging session** (`{derived-name}-stg`) — hidden, not CC-attached. Commands run here in separate windows. `swap-pane` rotates staging panes in and out of the view pane.
+**Understand before changing.** Read the relevant source files and recent git history before proposing any change. If something is broken, identify the exact commit or code path that broke it. Do not guess at fixes.
 
-The host session name is assigned by tmux when the session is created (e.g. `0`, `2`, `5`) and changes every time Pi restarts or promotes into a new tmux session. It is detected once on session start via `tmux display-message -p '#{session_name}'` and cached in-memory for the lifetime of the Pi process. It is never persisted because it would be stale on the next run. The derived session name (project directory slug + md5 hash, e.g. `pi-tmux-be23e752`) is persisted in Pi session entries so the staging session can be located across tool calls within the same Pi session.
+**Test manually with the operator.** Every behavioral change must be tested live in a tmux CC session. The agent proposes a test, runs it, and asks the operator what they see. The operator's confirmation is the only valid signal — the agent's assertion alone is not validation.
 
-## Key files
+**Document issues when found.** When a test reveals a problem, document it immediately in `docs/engineering/open-issues.md` with: a code (e.g. PANE-META), the exact observable symptom, why it matters, the root cause, and a verification sequence that must pass after the fix. This happens before any fix is attempted.
 
-| File | Purpose |
-|---|---|
-| `extensions/index.ts` | Tool registration, lifecycle hooks, action dispatch |
-| `extensions/actions.ts` | All tmux actions (run, attach, focus, peek, list, close, kill, mute) |
-| `extensions/session.ts` | tmux primitives: session/window/pane management, staging, view pane |
-| `extensions/state.ts` | Durable session identity persisted in Pi session entries |
-| `extensions/terminal-tmux.ts` | CC-mode terminal: visible split/tab via split-window, pane tracking |
-| `extensions/terminal-legacy.ts` | **Deprecated.** Outside-tmux fallback. Do not modify. Scheduled for deletion (LEGACY-GATE). |
-| `extensions/terminal.ts` | **Deprecated.** Dispatcher. Scheduled for deletion (LEGACY-GATE). |
-| `extensions/signals.ts` | Completion tracking, silence notifications |
-| `extensions/promote.ts` | /tmux-promote command — the only outside-tmux entry point |
-| `extensions/settings.ts` | User-configurable settings |
-| `extensions/tool-builder.ts` | Dynamic tool schema/description based on settings |
+**Keep documentation current.** When code changes affect the architecture, known issues, or the roadmap, update those documents in the same working session. AGENTS.md tenets change only when the extension's design principles change. Working practices change only when the development process changes. The roadmap and open issues are living documents updated continuously.
 
-## Known issues
+**Commit frequently, never amend.** Each commit is a small, coherent change that passes typecheck and tests. History is append-only — if a commit is wrong, fix forward. Push after every commit. Pull on the local install (`~/.pi/agent/git/.../pi-tmux`) after every push so the live extension matches.
 
-See `docs/engineering/open-issues.md` — five tracked issues (PANE-META, OUTPUT-TRACK, COMPLETE-BUILTIN, FOCUS-LEAK, ATTACH-VERIFY) with exact symptoms, root causes, and verification criteria. The most critical is PANE-META (pane metadata broken by swap-pane), which blocks list/peek/close/focus/resume by name.
+**Tag working checkpoints.** After completing a roadmap item or reaching a stable state, tag with `git tag -a v{version}-{code} -m "description"`. These are rollback targets when a later change introduces a regression.
 
-## Legacy code
+**Write for cold readers.** Every document, commit message, and issue description must be unambiguous to someone with no prior context about this codebase. No vague terms, no assumed knowledge. If a sentence requires context that isn't in the document, add the context or link to where it is.
 
-See `docs/engineering/legacy-audit.md` (LEGACY-GATE) — non-tmux mode is deprecated. The codebase has ~100 lines of legacy branches in `actions.ts` plus a dispatcher (`terminal.ts`) and full outside-tmux terminal implementation (`terminal-legacy.ts`). Only `promote.ts` and `getActiveiTermSession()` survive. Do not add new code to the legacy paths.
+**Typecheck and test before every commit.** `npm run typecheck` and `bun test` must both pass. Do not add `@ts-ignore`, `as any`, or `eslint-disable`. Do not modify files marked as deprecated (`terminal-legacy.ts`, `terminal.ts`) — they are scheduled for deletion.
 
-## Roadmap
+## Reference
 
-See `docs/ROADMAP.md` for execution order and all tracked work items with codes.
+Run `tree -L 2 --gitignore` to orient in the codebase.
 
-## Git practices
-
-- **Commit frequently.** Small, focused commits. Each commit should be a coherent change that passes typecheck and tests.
-- **Never amend.** History is append-only. If a commit is wrong, fix forward with a new commit.
-- **Push after every commit.** Remote must always reflect local state.
-- **Tag working checkpoints.** After completing a roadmap item or reaching a stable state, tag with `git tag -a v{version}-{code} -m "description"`. These are rollback targets when a later change introduces a regression.
-- **Pull on the local install** (`~/.pi/agent/git/.../pi-tmux`) after every push so the live extension matches.
-
-## Before committing
-
-- `npm run typecheck` must pass
-- `bun test` must pass (143+ tests)
-- Do not add `@ts-ignore`, `as any`, `eslint-disable`
-- Do not add new `if (process.env.TMUX)` branches — tmux is the only path
-- Do not modify `terminal-legacy.ts` or `terminal.ts` — they are scheduled for deletion
-- Test live in tmux CC mode before declaring anything works
-- If you change pane resolution logic, run the PANE-META verification sequence from `open-issues.md`
-
-## Testing
-
-The tmux tool must be tested live inside a tmux CC session (iTerm2). Unit tests cover session derivation, settings, and action routing but cannot verify CC-mode visibility or swap behavior. Always validate with the operator.
-
-Test commands to verify visibility (replace HOST and STAGING with actual session names):
-```bash
-# Confirm the split exists — the host session should show two panes, not one
-tmux list-panes -t '=HOST:0' -F '#{pane_index} #{pane_id} #{pane_current_command}'
-
-# Confirm iTerm2 sees the split — look for reduced dimensions (e.g. 75x43 instead of 150x45)
-it2api list-sessions
-
-# Confirm staging window names match the names passed to run
-tmux list-windows -t '=STAGING' -F '#{window_index} #{window_name}'
-```
+**Documentation structure:**
+- `AGENTS.md` — this file. Design tenets and working practices.
+- `docs/ROADMAP.md` — execution order for all tracked work items, each with an issue code. Start here to understand what needs to be done and in what order.
+- `docs/engineering/open-issues.md` — active defects with exact symptoms, root causes, and verification sequences. Referenced by code (PANE-META, OUTPUT-TRACK, COMPLETE-BUILTIN, FOCUS-LEAK, ATTACH-VERIFY).
+- `docs/engineering/` — engineering documents including the legacy code audit. The roadmap links to specific documents where relevant.
