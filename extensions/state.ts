@@ -160,7 +160,9 @@ export function getOrCreateBinding(
 	// Validate live tmux session and recreate if missing
 	const recreated = ensureTmuxSessionExists(state.tmuxSessionName);
 
-	const host = state.hostSessionName ?? state.tmuxSessionName;
+	// Always detect host session live — the CC session name changes between
+	// pi sessions (e.g. "0", "2") and persisted values go stale.
+	const host = detectHostSession() ?? state.tmuxSessionName;
 	return {
 		tmuxSessionName: state.tmuxSessionName,
 		stagingSessionName: deriveStagingName(state.tmuxSessionName),
