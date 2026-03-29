@@ -8,7 +8,7 @@ This architecture works at the tmux level: commands execute, output is visible, 
 
 ---
 
-## 1. Pane metadata (`@pi_managed`, `@pi_title`) does not survive swap-pane
+## PANE-META: Pane metadata (`@pi_managed`, `@pi_title`) does not survive swap-pane
 
 **What happens:** After running two or more commands, `list`, `peek` by name, `close` by name or index, `focus` by name, and `resume` by name all fail or resolve to wrong panes.
 
@@ -30,7 +30,7 @@ This architecture works at the tmux level: commands execute, output is visible, 
 
 ---
 
-## 2. Completion notifications do not tell the model what was omitted
+## OUTPUT-TRACK: Completion notifications do not tell the model what was omitted
 
 **What happens:** When a command finishes, the notification includes the last 20 non-empty lines. If the command produced 500 lines of output, the model sees 20 and has no indication that 480 lines were dropped.
 
@@ -46,7 +46,7 @@ This architecture works at the tmux level: commands execute, output is visible, 
 
 ---
 
-## 3. Completion tracker fires prematurely for shell builtins
+## COMPLETE-BUILTIN: Completion tracker fires prematurely for shell builtins
 
 **What happens:** Commands like `read -r REPLY` block waiting for user input, but the completion tracker immediately marks the command as finished.
 
@@ -60,7 +60,7 @@ This architecture works at the tmux level: commands execute, output is visible, 
 
 ---
 
-## 4. Focus reporting escape sequences leak into swapped panes
+## FOCUS-LEAK: Focus reporting escape sequences leak into swapped panes
 
 **What happens:** `^[[I` (focus gained) and `^[[O` (focus lost) appear as visible raw text in the view pane when the operator clicks in and out of it.
 
@@ -74,7 +74,7 @@ This architecture works at the tmux level: commands execute, output is visible, 
 
 ---
 
-## 5. `attach` does not verify the view pane actually exists
+## ATTACH-VERIFY: `attach` does not verify the view pane actually exists
 
 **What happens:** `attach` returns "View pane already visible" or "Already attached" based on an in-memory flag, without checking whether the view pane (pane 1 of window 0 in the host session) still exists in tmux.
 

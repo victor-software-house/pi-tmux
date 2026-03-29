@@ -30,7 +30,7 @@ The host session name is volatile (changes every Pi restart). It is detected onc
 
 ## Known issues
 
-See `docs/engineering/open-issues.md` — five tracked issues with exact symptoms, root causes, and verification criteria. The most critical is #1 (pane metadata broken by swap-pane), which blocks list/peek/close/focus/resume by name.
+See `docs/engineering/open-issues.md` — five tracked issues with exact symptoms, root causes, and verification criteria. The most critical is PANE-META (pane metadata broken by swap-pane), which blocks list/peek/close/focus/resume by name.
 
 ## Before committing
 

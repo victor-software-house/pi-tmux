@@ -3,7 +3,7 @@
 ## Critical — fix before further feature work
 
 ### Replace pane metadata with staging window queries
-The `@pi_managed` / `@pi_title` pane metadata system is broken by `swap-pane`. This blocks `list`, `peek` by name, `close`, `focus`, `resume`, and `mute`. The staging session's window names are the correct source of truth. See `docs/engineering/open-issues.md#1` for full details and verification criteria.
+The `@pi_managed` / `@pi_title` pane metadata system is broken by `swap-pane`. This blocks `list`, `peek` by name, `close`, `focus`, `resume`, and `mute`. The staging session's window names are the correct source of truth. See `docs/engineering/open-issues.md` PANE-META for full details and verification criteria.
 
 ### Disable non-tmux mode, gate behind /tmux-promote
 Non-tmux (legacy) code paths add complexity and are untested. When not in tmux: show widget warning "tmux disabled -- run /tmux-promote", register only the promote command, tool returns error. When in tmux: full tool available. Follow the ACM pattern from pi-context. Mark `terminal-legacy.ts` as deprecated.
@@ -11,16 +11,16 @@ Non-tmux (legacy) code paths add complexity and are untested. When not in tmux: 
 ## High priority
 
 ### Output tracking via pipe-pane
-Completion notifications silently truncate to 20 lines with no indication of what was omitted. The model cannot make informed decisions about when to peek. Implement `tmux pipe-pane` to per-pane log files, track byte offsets per command, and include omission metadata in notifications. See `docs/engineering/open-issues.md#2`.
+Completion notifications silently truncate to 20 lines with no indication of what was omitted. The model cannot make informed decisions about when to peek. Implement `tmux pipe-pane` to per-pane log files, track byte offsets per command, and include omission metadata in notifications. See `docs/engineering/open-issues.md` OUTPUT-TRACK.
 
 ### Fix completion tracker for shell builtins
-Builtins like `read` and `wait` cause premature completion because `pane_current_command` stays as the shell name. The model reports commands done before the operator has interacted. See `docs/engineering/open-issues.md#3`.
+Builtins like `read` and `wait` cause premature completion because `pane_current_command` stays as the shell name. The model reports commands done before the operator has interacted. See `docs/engineering/open-issues.md` COMPLETE-BUILTIN.
 
 ### Add tmux environment warnings on session start
 Check for jixiuf/tmux fork (`kitty-keys` option) and warn if not present. Surface as a widget or notification on session_start.
 
 ### Verify attach by checking view pane existence
-`attach` trusts an in-memory flag without verifying the pane exists. See `docs/engineering/open-issues.md#5`.
+`attach` trusts an in-memory flag without verifying the pane exists. See `docs/engineering/open-issues.md` ATTACH-VERIFY.
 
 ## Medium priority
 
@@ -31,7 +31,7 @@ Pi 0.63.2 added `ctx.signal` to extension contexts. Currently `actionRun` ignore
 Pi 0.64.0 added `ToolDefinition.prepareArguments` hook. Use it to handle resumed sessions where the tool schema may have changed without breaking old sessions.
 
 ### Fix focus reporting escape sequence leakage
-`^[[I` / `^[[O` appear as raw text in the view pane. See `docs/engineering/open-issues.md#4`.
+`^[[I` / `^[[O` appear as raw text in the view pane. See `docs/engineering/open-issues.md` FOCUS-LEAK.
 
 ## Low priority
 
