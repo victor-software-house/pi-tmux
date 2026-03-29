@@ -1,25 +1,42 @@
 # pi-tmux Roadmap
 
-## Planned
+## Critical — fix before further feature work
 
-### Wire ctx.signal for cancellation support
-Pi 0.63.2 added `ctx.signal` to extension contexts. Currently `actionRun` ignores the signal parameter. Wire it to kill the staging pane when the user cancels a tool call mid-execution, so long-running commands don't keep running after cancellation.
-
-### Use prepareArguments for schema migration
-Pi 0.64.0 added `ToolDefinition.prepareArguments` hook. Use it to handle resumed sessions where the tool schema may have changed (e.g. parameter renames, new required fields) without breaking old sessions.
-
-### Leverage extension-queued message delivery fix
-Pi 0.64.0 fixed extension-queued user messages being dropped during active turns. Silence/completion notifications submitted via `pi.sendUserMessage()` while the agent is running should now reliably deliver. Verify this works for our silence alert flow and consider using it for richer completion notifications.
+### Replace pane metadata with staging window queries
+The `@pi_managed` / `@pi_title` pane metadata system is broken by `swap-pane`. This blocks `list`, `peek` by name, `close`, `focus`, `resume`, and `mute`. The staging session's window names are the correct source of truth. See `docs/engineering/open-issues.md#1` for full details and verification criteria.
 
 ### Disable non-tmux mode, gate behind /tmux-promote
-Non-tmux (legacy) code paths add complexity and are untested in practice. Plan:
-- When not in tmux: show widget warning "tmux disabled -- run /tmux-promote", register only the promote command, tool returns error pointing to promote
-- When in tmux: full tool available
-- Mark `terminal-legacy.ts` as deprecated, keep only for the promote path
-- Follow the ACM pattern from pi-context for the disabled/enabled gate
+Non-tmux (legacy) code paths add complexity and are untested. When not in tmux: show widget warning "tmux disabled -- run /tmux-promote", register only the promote command, tool returns error. When in tmux: full tool available. Follow the ACM pattern from pi-context. Mark `terminal-legacy.ts` as deprecated.
+
+## High priority
+
+### Output tracking via pipe-pane
+Completion notifications silently truncate to 20 lines with no indication of what was omitted. The model cannot make informed decisions about when to peek. Implement `tmux pipe-pane` to per-pane log files, track byte offsets per command, and include omission metadata in notifications. See `docs/engineering/open-issues.md#2`.
+
+### Fix completion tracker for shell builtins
+Builtins like `read` and `wait` cause premature completion because `pane_current_command` stays as the shell name. The model reports commands done before the operator has interacted. See `docs/engineering/open-issues.md#3`.
 
 ### Add tmux environment warnings on session start
-Check for jixiuf/tmux fork (`kitty-keys` option) and warn if not present. Check `extended-keys` and `extended-keys-format` like pi itself does. Surface as a widget or notification on session_start.
+Check for jixiuf/tmux fork (`kitty-keys` option) and warn if not present. Surface as a widget or notification on session_start.
+
+### Verify attach by checking view pane existence
+`attach` trusts an in-memory flag without verifying the pane exists. See `docs/engineering/open-issues.md#5`.
+
+## Medium priority
+
+### Wire ctx.signal for cancellation support
+Pi 0.63.2 added `ctx.signal` to extension contexts. Currently `actionRun` ignores the signal parameter. Wire it to kill the staging pane when the user cancels a tool call mid-execution.
+
+### Use prepareArguments for schema migration
+Pi 0.64.0 added `ToolDefinition.prepareArguments` hook. Use it to handle resumed sessions where the tool schema may have changed without breaking old sessions.
+
+### Fix focus reporting escape sequence leakage
+`^[[I` / `^[[O` appear as raw text in the view pane. See `docs/engineering/open-issues.md#4`.
+
+## Low priority
+
+### Leverage extension-queued message delivery fix
+Pi 0.64.0 fixed extension-queued user messages being dropped during active turns. Verify this works for the silence alert flow.
 
 ### Rename host session on startup
-Consider renaming the CC host session to a human-readable name on session_start (e.g. project slug). Currently the host session has a tmux auto-assigned numeric name which is invisible to the operator but shows up in `tmux list-sessions`. Low priority since the name is not user-facing in iTerm2 CC mode.
+Consider renaming the CC host session to a human-readable name. Currently the host session has a tmux auto-assigned numeric name. Low priority since the name is not user-facing in iTerm2 CC mode.
