@@ -30,7 +30,11 @@ The host session name is volatile (changes every Pi restart). It is detected onc
 
 ## Known issues
 
-See `docs/engineering/open-issues.md` — five tracked issues with exact symptoms, root causes, and verification criteria. The most critical is PANE-META (pane metadata broken by swap-pane), which blocks list/peek/close/focus/resume by name.
+See `docs/engineering/open-issues.md` — five tracked issues (PANE-META, OUTPUT-TRACK, COMPLETE-BUILTIN, FOCUS-LEAK, ATTACH-VERIFY) with exact symptoms, root causes, and verification criteria. The most critical is PANE-META (pane metadata broken by swap-pane), which blocks list/peek/close/focus/resume by name.
+
+## Legacy code
+
+See `docs/engineering/legacy-audit.md` — non-tmux mode is deprecated. The codebase has ~100 lines of legacy branches in `actions.ts` plus a dispatcher (`terminal.ts`) and full outside-tmux terminal implementation (`terminal-legacy.ts`). Only `promote.ts` and `getActiveiTermSession()` survive. Do not add new code to the legacy paths.
 
 ## Before committing
 

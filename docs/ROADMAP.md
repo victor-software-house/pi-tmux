@@ -6,7 +6,11 @@
 The `@pi_managed` / `@pi_title` pane metadata system is broken by `swap-pane`. This blocks `list`, `peek` by name, `close`, `focus`, `resume`, and `mute`. The staging session's window names are the correct source of truth. See `docs/engineering/open-issues.md` PANE-META for full details and verification criteria.
 
 ### Disable non-tmux mode, gate behind /tmux-promote
-Non-tmux (legacy) code paths add complexity and are untested. When not in tmux: show widget warning "tmux disabled -- run /tmux-promote", register only the promote command, tool returns error. When in tmux: full tool available. Follow the ACM pattern from pi-context. Mark `terminal-legacy.ts` as deprecated.
+Non-tmux (legacy) code paths add complexity and are untested. Three-phase plan:
+1. Gate: runtime check on session_start, widget warning, tool returns error outside tmux
+2. Remove: delete legacy branches from actions.ts, delete terminal.ts dispatcher
+3. Simplify: direct imports, consider renaming host session on promote
+See `docs/engineering/legacy-audit.md` for full audit of what's dead, what survives, and what actively hurts the tmux path.
 
 ## High priority
 
