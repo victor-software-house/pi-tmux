@@ -58,6 +58,14 @@ See `docs/engineering/legacy-audit.md` (LEGACY-GATE) — non-tmux mode is deprec
 
 See `docs/ROADMAP.md` for execution order and all tracked work items with codes.
 
+## Git practices
+
+- **Commit frequently.** Small, focused commits. Each commit should be a coherent change that passes typecheck and tests.
+- **Never amend.** History is append-only. If a commit is wrong, fix forward with a new commit.
+- **Push after every commit.** Remote must always reflect local state.
+- **Tag working checkpoints.** After completing a roadmap item or reaching a stable state, tag with `git tag -a v{version}-{code} -m "description"`. These are rollback points for emergencies.
+- **Pull on the local install** (`~/.pi/agent/git/.../pi-tmux`) after every push so the live extension matches.
+
 ## Before committing
 
 - `npm run typecheck` must pass
