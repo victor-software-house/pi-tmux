@@ -180,7 +180,7 @@ export default function (pi: ExtensionAPI) {
 					if (params.window === undefined) {
 						return toToolResult({ ok: false, message: "Error: 'window' is required for close. Use kill to close the entire session." });
 					}
-					return toToolResult(actionClose(session, params.window));
+					return toToolResult(actionClose(session, params.window, hostSession));
 				}
 
 				case "peek": {
@@ -192,11 +192,11 @@ export default function (pi: ExtensionAPI) {
 								: Number.isNaN(Number.parseInt(String(params.window), 10))
 									? String(params.window)
 									: Number.parseInt(String(params.window), 10);
-					return toToolResult(actionPeek(session, target));
+					return toToolResult(actionPeek(session, target, hostSession));
 				}
 
 				case "list":
-					return toToolResult(actionList(session));
+					return toToolResult(actionList(session, hostSession));
 
 				case "kill":
 					return toToolResult(actionKill(session, hostSession));
@@ -209,7 +209,7 @@ export default function (pi: ExtensionAPI) {
 						return toToolResult({ ok: false, message: "Error: 'window' target required for mute." });
 					}
 					const muteTarget = typeof params.window === "number" ? params.window : Number.isNaN(Number.parseInt(String(params.window), 10)) ? String(params.window) : Number.parseInt(String(params.window), 10);
-					return toToolResult(actionMute(session, muteTarget));
+					return toToolResult(actionMute(session, muteTarget, hostSession));
 				}
 
 				default:

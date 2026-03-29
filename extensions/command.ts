@@ -26,7 +26,7 @@ import {
 	MAX_WINDOWS_RANGE,
 	COMPLETION_POLL_INTERVAL_RANGE,
 } from "./settings.js";
-import { resolveProjectRoot, deriveSessionName, listWindows, listManagedPanes } from "./session.js";
+import { resolveProjectRoot, deriveSessionName, listWindows, listManagedPanes, tryRun } from "./session.js";
 import { actionAttach, actionList, actionClear, actionKill, actionPeek, type ActionResult } from "./actions.js";
 import { getOrCreateBinding } from "./state.js";
 
@@ -73,14 +73,18 @@ export function registerTmuxCommand(pi: ExtensionAPI): void {
 			if (parts.length >= 2 && windowTargetSubs.has(sub)) {
 				const root = resolveProjectRoot(process.cwd());
 				const session = deriveSessionName(root);
-				const windows = listWindows(session);
-				if (windows.length === 0) return null;
-
-				const windowItems = windows.map((w) => ({
-					value: `${sub} :${w.index}`,
-					label: `:${w.index}  ${w.title}${w.active ? "  (active)" : ""}`,
-					description: w.title,
-				}));
+				const windowItems = process.env.TMUX
+					? listManagedPanes(session, tryRun("tmux display-message -p '#{session_name}'")?.trim() ?? session).map((pane) => ({
+						value: `${sub} :${pane.windowIndex}`,
+						label: `:${pane.windowIndex}  ${pane.title}${pane.visible ? "  (visible)" : ""}`,
+						description: pane.title,
+					}))
+					: listWindows(session).map((w) => ({
+						value: `${sub} :${w.index}`,
+						label: `:${w.index}  ${w.title}${w.active ? "  (active)" : ""}`,
+						description: w.title,
+					}));
+				if (windowItems.length === 0) return null;
 
 				const filtered = rest
 					? windowItems.filter((i) => i.label.toLowerCase().includes(rest))
@@ -112,12 +116,12 @@ export function registerTmuxCommand(pi: ExtensionAPI): void {
 			if (sub in attachModes) {
 				const layout = attachModes[sub];
 				if (!layout) return;
-				notify(ctx, actionAttach(session, ctx.cwd, { layout, window: windowArg }));
+				notify(ctx, actionAttach(session, ctx.cwd, { layout, window: windowArg, hostSession: binding.hostSessionName }));
 				return;
 			}
 
-			if (sub === "list" || sub === "show") { notify(ctx, actionList(session)); return; }
-			if (sub === "cat") return handleCat(ctx, pi, session, windowArg);
+			if (sub === "list" || sub === "show") { notify(ctx, actionList(session, binding.hostSessionName)); return; }
+			if (sub === "cat") return handleCat(ctx, pi, session, binding.hostSessionName, windowArg);
 			if (sub === "clear") { notify(ctx, actionClear(session)); return; }
 			if (sub === "kill") { notify(ctx, actionKill(session)); return; }
 
@@ -496,9 +500,9 @@ function parseWindowArg(raw: string): number | undefined {
 	return Number.isNaN(n) ? undefined : n;
 }
 
-async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session: string, windowArg?: number): Promise<void> {
+async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session: string, hostSession: string, windowArg?: number): Promise<void> {
 	// Quick session check for the interactive picker path
-	const listResult = actionList(session);
+	const listResult = actionList(session, hostSession);
 	if (!listResult.ok) {
 		ctx.ui.notify(listResult.message, "error");
 		return;
@@ -511,8 +515,8 @@ async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session
 	} else {
 		// Show interactive picker
 		if (process.env.TMUX) {
-			const panes = listManagedPanes(session);
-			const options = ["all panes", ...panes.map((pane) => `${pane.paneId}  ${pane.title}${pane.visible ? "  (visible)" : ""}`)];
+			const panes = listManagedPanes(session, hostSession);
+			const options = ["all panes", ...panes.map((pane) => `:${pane.windowIndex}  ${pane.title}${pane.visible ? "  (visible)" : ""}`)];
 			const choice = await ctx.ui.select("Capture output from:", options);
 			if (choice === undefined || choice === null) return;
 			if (String(choice) === "0" || choice === "all panes") {
@@ -524,7 +528,7 @@ async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session
 					ctx.ui.notify("Invalid selection.", "error");
 					return;
 				}
-				target = selectedPane.paneId;
+				target = selectedPane.windowIndex;
 			}
 		} else {
 			const windows = listWindows(session);
@@ -546,7 +550,7 @@ async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session
 		}
 	}
 
-	const result = actionPeek(session, target);
+	const result = actionPeek(session, target, hostSession);
 	if (!result.ok) {
 		ctx.ui.notify(result.message, "error");
 		return;

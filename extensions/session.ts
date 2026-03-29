@@ -13,7 +13,8 @@ export function run(cmd: string): string {
 }
 
 const IDLE_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", "csh"]);
-const MANAGED_PANE_MARK = "1";
+const VISIBLE_STAGING_WINDOW_OPTION = "@pi_visible_staging_window";
+const VISIBLE_OWNER_SESSION_OPTION = "@pi_visible_owner_session";
 
 /** Run a shell command, returning stdout on success or null on any error. */
 export function tryRun(cmd: string): string | null {
@@ -163,16 +164,14 @@ export function respawnStagingWindow(staging: string, windowIdx: number, cwd: st
 	run(`tmux respawn-pane -k -t ${tmuxSessionTarget(staging)}:${windowIdx}.0 -c "${cwd}"`);
 }
 
-/** Mark a pane as managed by pi-tmux for a specific project session. */
-export function markManagedPane(paneId: string, ownerSession: string, title: string): void {
-	setPaneOption(paneId, "managed", MANAGED_PANE_MARK);
-	setPaneOption(paneId, "owner_session", ownerSession);
-	setPaneOption(paneId, "title", title);
+export function setVisibleStagingWindow(hostSession: string, ownerSession: string, windowIndex: number): void {
+	run(`tmux set-window-option -t ${tmuxSessionTarget(hostSession)}:0 ${VISIBLE_STAGING_WINDOW_OPTION} ${windowIndex}`);
+	run(`tmux set-window-option -t ${tmuxSessionTarget(hostSession)}:0 ${VISIBLE_OWNER_SESSION_OPTION} "${tmuxEscape(ownerSession)}"`);
 }
 
-/** Update the logical title stored on a managed pane. */
-export function setManagedPaneTitle(paneId: string, title: string): void {
-	setPaneOption(paneId, "title", title);
+export function clearVisibleStagingWindow(hostSession: string): void {
+	tryRun(`tmux set-window-option -u -t ${tmuxSessionTarget(hostSession)}:0 ${VISIBLE_STAGING_WINDOW_OPTION}`);
+	tryRun(`tmux set-window-option -u -t ${tmuxSessionTarget(hostSession)}:0 ${VISIBLE_OWNER_SESSION_OPTION}`);
 }
 
 /** Read the current pane ID for a window target. Returns null if unavailable. */
@@ -197,35 +196,64 @@ export function getPaneLocation(paneId: string): { session: string; windowIndex:
 	return { session, windowIndex, paneIndex };
 }
 
-/** List all managed panes for a project session across the CC and staging sessions. */
-export function listManagedPanes(ownerSession: string): ManagedPaneInfo[] {
-	const sessions = [ownerSession, deriveStagingName(ownerSession)].filter((name, index, all) => isSessionAlive(name) && all.indexOf(name) === index);
-	if (sessions.length === 0) return [];
-
-	const panes: ManagedPaneInfo[] = [];
-	for (const sessionName of sessions) {
-		const raw = tryRun(
-			`tmux list-panes -s -t ${tmuxSessionTarget(sessionName)} -F "#{pane_id}\t#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_active}\t#{pane_current_command}\t#{pane_pid}\t#{@pi_managed}\t#{@pi_owner_session}\t#{@pi_title}"`,
-		);
-		if (!raw) continue;
-		for (const line of raw.split("\n")) {
-			const pane = parseManagedPaneLine(line, ownerSession);
-			if (!pane) continue;
-			panes.push(pane);
-		}
+function getViewPaneInfo(hostSession: string): { paneId: string; currentCommand: string; panePid: string } | null {
+	const raw = tryRun(`tmux list-panes -t ${tmuxSessionTarget(hostSession)}:0 -F "#{pane_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}"`);
+	if (!raw) return null;
+	for (const line of raw.split("\n")) {
+		const parts = line.split("\t");
+		if ((parts[0] ?? "") !== "1") continue;
+		const paneId = parts[1] ?? "";
+		if (!paneId) return null;
+		return {
+			paneId,
+			currentCommand: parts[2] ?? "",
+			panePid: parts[3] ?? "",
+		};
 	}
-
-	return panes.sort((a, b) => {
-		if (a.visible !== b.visible) return a.visible ? -1 : 1;
-		if (a.session !== b.session) return a.session.localeCompare(b.session);
-		if (a.windowIndex !== b.windowIndex) return a.windowIndex - b.windowIndex;
-		return a.paneIndex - b.paneIndex;
-	});
+	return null;
 }
 
-/** Find one managed pane by pane ID, logical title, or current location index. */
-export function resolveManagedPane(ownerSession: string, target: number | string): ManagedPaneInfo | undefined {
-	const panes = listManagedPanes(ownerSession);
+function getVisibleStagingWindow(ownerSession: string, hostSession: string): number | undefined {
+	const viewPane = getViewPaneInfo(hostSession);
+	if (!viewPane) return undefined;
+	const raw = tryRun(
+		`tmux display -p -t ${tmuxSessionTarget(hostSession)}:0 "#{${VISIBLE_OWNER_SESSION_OPTION}}\t#{${VISIBLE_STAGING_WINDOW_OPTION}}"`,
+	);
+	if (!raw) return undefined;
+	const parts = raw.split("\t");
+	const visibleOwnerSession = parts[0] ?? "";
+	const visibleWindow = Number.parseInt(parts[1] ?? "", 10);
+	if (visibleOwnerSession !== ownerSession || Number.isNaN(visibleWindow)) return undefined;
+	return visibleWindow;
+}
+
+/** List all managed panes for a project session by stable staging-window identity. */
+export function listManagedPanes(ownerSession: string, hostSession = ownerSession): ManagedPaneInfo[] {
+	const staging = deriveStagingName(ownerSession);
+	if (!isSessionAlive(staging)) return [];
+
+	const visibleWindowIndex = getVisibleStagingWindow(ownerSession, hostSession);
+	const viewPane = visibleWindowIndex === undefined ? null : getViewPaneInfo(hostSession);
+	const raw = tryRun(
+		`tmux list-panes -t ${tmuxSessionTarget(staging)} -F "#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}"`,
+	);
+	if (!raw) return [];
+
+	const panes = raw
+		.split("\n")
+		.map((line) => parseManagedPaneLine(line, staging, hostSession, visibleWindowIndex, viewPane))
+		.filter((pane): pane is ManagedPaneInfo => pane !== null)
+		.sort((a, b) => {
+			if (a.visible !== b.visible) return a.visible ? -1 : 1;
+			return a.windowIndex - b.windowIndex;
+		});
+
+	return panes;
+}
+
+/** Find one managed pane by staging window index, logical title, or current pane ID. */
+export function resolveManagedPane(ownerSession: string, target: number | string, hostSession = ownerSession): ManagedPaneInfo | undefined {
+	const panes = listManagedPanes(ownerSession, hostSession);
 	if (typeof target === "number") {
 		return panes.find((pane) => pane.windowIndex === target);
 	}
@@ -298,10 +326,6 @@ export function deriveWindowName(command: string): string {
 	return (command.trim().split(/[|;&\s]/)[0]?.split("/").pop() || "shell").slice(0, 30);
 }
 
-function setPaneOption(paneId: string, key: string, value: string): void {
-	run(`tmux set-option -p -t ${paneId} @pi_${key} "${tmuxEscape(value)}"`);
-}
-
 function paneHasChildren(pid: string): boolean {
 	return Boolean(pid) && Boolean(tryRun(`pgrep -P ${pid}`));
 }
@@ -312,29 +336,33 @@ interface PaneQuiescenceOptions {
 	timeoutMs?: number;
 }
 
-function parseManagedPaneLine(line: string, ownerSession: string): ManagedPaneInfo | null {
+function parseManagedPaneLine(
+	line: string,
+	stagingSession: string,
+	hostSession: string,
+	visibleWindowIndex: number | undefined,
+	viewPane: { paneId: string; currentCommand: string; panePid: string } | null,
+): ManagedPaneInfo | null {
 	const parts = line.split("\t");
-	const paneId = parts[0] ?? "";
-	const session = parts[1] ?? "";
-	const windowIndex = Number.parseInt(parts[2] ?? "", 10);
-	const paneIndex = Number.parseInt(parts[3] ?? "", 10);
-	const active = (parts[4] ?? "") === "1";
-	const currentCommand = parts[5] ?? "";
-	const panePid = parts[6] ?? "";
-	const managed = parts[7] ?? "";
-	const paneOwnerSession = parts[8] ?? "";
-	const title = parts[9] ?? "";
-	if (managed !== MANAGED_PANE_MARK || paneOwnerSession !== ownerSession) return null;
-	if (!paneId || !session || Number.isNaN(windowIndex) || Number.isNaN(paneIndex)) return null;
+	const windowIndex = Number.parseInt(parts[0] ?? "", 10);
+	const title = parts[1] ?? "";
+	const stagingPaneId = parts[2] ?? "";
+	if (Number.isNaN(windowIndex) || !title || !stagingPaneId) return null;
+
+	const visible = visibleWindowIndex === windowIndex && viewPane !== null;
+	const paneId = visible ? viewPane.paneId : stagingPaneId;
+	const currentCommand = visible ? viewPane.currentCommand : (parts[3] ?? "");
+	const panePid = visible ? viewPane.panePid : (parts[4] ?? "");
+
 	return {
 		paneId,
-		ownerSession: paneOwnerSession,
-		title: title || paneId,
-		session,
+		ownerSession: stagingSession.replace(/-stg$/, ""),
+		title,
+		session: visible ? hostSession : stagingSession,
 		windowIndex,
-		paneIndex,
-		active,
-		visible: session === ownerSession && windowIndex === 0 && paneIndex === 1,
+		paneIndex: visible ? 1 : 0,
+		active: visible,
+		visible,
 		currentCommand,
 		idle: isIdleShellCommand(currentCommand) && !paneHasChildren(panePid),
 	};
