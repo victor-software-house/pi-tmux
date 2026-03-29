@@ -31,6 +31,12 @@ Fixed by detecting Pi's host session and window index from `TMUX_PANE` at startu
 
 Fixed by querying `tmux list-panes` for pane index `1` in the host window before reporting attached.
 
+### LEGACY-GATE phase 1 (fixed)
+
+The extension pretended to work outside tmux. Legacy code paths for iTerm2 Python API, AppleScript, and terminal-specific CLI tools were untested and added branching complexity.
+
+Fixed by gating the entire extension behind `process.env.TMUX` in `index.ts`. Outside tmux: only `/tmux-promote` is registered, `session_start` shows a warning, and the tool returns a clear error for every action. Inside tmux: no behavior change.
+
 ---
 
 ## Active issues

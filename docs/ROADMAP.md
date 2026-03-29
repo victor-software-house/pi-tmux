@@ -42,10 +42,12 @@ The `@pi_managed` / `@pi_title` pane metadata system is broken by `swap-pane`. T
 
 ### LEGACY-GATE: Disable non-tmux mode, gate behind /tmux-promote
 Non-tmux (legacy) code paths add complexity and are untested. Three-phase plan:
-1. Gate: runtime check on session_start, widget warning, tool returns error outside tmux
+1. ~~Gate: runtime check on session_start, widget warning, tool returns error outside tmux~~ (done)
 2. Remove: delete legacy branches from actions.ts, delete terminal.ts dispatcher
 3. Simplify: direct imports, consider renaming host session on promote
 See `docs/engineering/legacy-audit.md` for full audit of what's dead, what survives, and what actively hurts the tmux path.
+
+Phase 1 is done. Outside tmux: only `/tmux-promote` is registered, `session_start` warns, tool returns error. Inside tmux: no change.
 
 ## High priority
 
