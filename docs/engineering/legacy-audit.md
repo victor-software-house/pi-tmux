@@ -37,13 +37,28 @@ Only called in the legacy `actionRun` path when creating a new session. In tmux 
 - Follows the ACM pattern from pi-context
 - No code deletion yet — just a runtime gate
 
-### Phase 2: Remove legacy branches
+### Phase 2: Remove legacy code entirely
 - Delete all `else` branches after `if (process.env.TMUX)` in `actions.ts`
 - Remove `process.env.TMUX` checks entirely — tmux is the only path
-- Delete `terminal.ts` dispatcher (import `terminal-tmux.ts` directly)
-- Trim `terminal-legacy.ts` to only `getActiveiTermSession()` for promote
-- Remove `attachToSession()` from `terminal.ts`
+- Delete `terminal.ts` dispatcher
+- Delete `terminal-legacy.ts` completely
+- Move `getActiveiTermSession()` into `promote.ts` (its only consumer)
+- Rename `terminal-tmux.ts` to `terminal.ts` — it is the terminal implementation, not a variant
+- Remove `attachToSession()` — dead code
+- Remove `AttachOptions` and `piSessionId` from `types.ts` if no longer referenced
 
-### Phase 3: Simplify
-- `actions.ts` no longer needs `hostSession` plumbing if promote always creates a named session
+### Phase 3: Restructure
+- `actions.ts` becomes linear — no branching, every action assumes tmux
+- `hostSession` plumbing simplifies if promote always creates a named session
 - Consider renaming the host session on promote to the derived name, eliminating the host/command session split entirely
+- File count drops: `terminal-legacy.ts` gone, `terminal.ts` dispatcher gone, `terminal-tmux.ts` becomes `terminal.ts`
+- The codebase structure should reflect that tmux CC is not an alternative — it is the architecture
+
+### End state
+After all phases, the codebase has:
+- No `process.env.TMUX` checks in action logic
+- No `terminal-legacy.ts`
+- No `terminal.ts` dispatcher
+- `terminal.ts` (renamed from `terminal-tmux.ts`) as the sole terminal implementation
+- `promote.ts` as the only file that handles the outside-tmux case, self-contained
+- `actions.ts` with clean, linear tmux-only logic
