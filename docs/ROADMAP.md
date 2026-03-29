@@ -14,6 +14,25 @@
 
 Items 1-2 are prerequisites for everything else. Items 3-5 have ordering dependencies (noted above). Item 7 blocks final confidence in live tmux CC verification. Items 6, 8, and 9 are otherwise independent.
 
+## Terminology
+
+Use exact tmux names everywhere. No metaphors, no vague terms.
+
+| Term | Meaning |
+|---|---|
+| tmux session | A named tmux session (e.g. `13`, `pi-tmux-be23e752-stg`) |
+| tmux window | A numbered tab within a tmux session (e.g. window `4` of session `13`) |
+| tmux pane | A rectangular region within a window, identified by pane ID (e.g. `%84`) |
+| pane ID | Tmux's unique identifier for a pane (e.g. `%84`). Survives `swap-pane`. |
+| pane option | A user-defined key-value pair on a pane (`set-option -p`). Travels with the pane ID through `swap-pane`. |
+| host session | The tmux session Pi is running in. Detected from `TMUX_PANE` at startup. |
+| host window | The tmux window within the host session where Pi's own pane lives. Detected from `TMUX_PANE` at startup. |
+| view pane | The split pane next to Pi (pane index `1` in the host window). Shows one command's output at a time. Created by `split-window`. |
+| staging session | A separate tmux session (`{name}-stg`) not attached to iTerm2 CC. Command panes are created here. |
+| staging window | A tmux window in the staging session. One per command. |
+| `@pi_name` | Pane option labeling a command pane with its logical name (e.g. `build`). The sole identity for a command pane. |
+| `swap-pane` | Tmux command that exchanges two panes between positions. Both pane IDs move. Accepts pane IDs directly. |
+
 ---
 
 ## Critical — fix before further feature work

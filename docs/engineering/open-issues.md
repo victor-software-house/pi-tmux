@@ -99,16 +99,21 @@ This architecture works at the tmux level: commands execute, output appears in t
 
 Result: staging `:1` has old shell, `:2` has `a`-pane, `:3` has `b`-pane, view has `c`-pane.
 
-**Fix direction:** Use a tmux pane user option as a permanent home-address label. Pane options (`set-option -p`) are properties of the pane ID and travel with the pane through any number of `swap-pane` operations. This is deterministic — no external tracker, no rotation, no state to get out of sync.
+**Fix direction:** Eliminate position-based identity entirely. Use a pane label (`@pi_name`) as the sole identity for each command pane. `swap-pane` accepts pane IDs directly (`swap-pane -d -s HOST:W.1 -t %PANE_ID`), so tmux resolves the location — the caller does not need to know which staging window the pane is in.
 
-1. When creating a staging pane, set `@pi_home_window` on the pane: `tmux set-option -p -t %PANE @pi_home_window INDEX`
-2. Before swapping a new pane into the view, read `@pi_home_window` from the pane currently in the view: `tmux display -p -t host:W.1 '#{@pi_home_window}'`
-3. Swap the current view pane back to its home: `swap-pane -d -s host:W.1 -t staging:HOME.0`
-4. Swap the new pane in: `swap-pane -d -s host:W.1 -t staging:NEW.0`
+With this approach:
+1. When creating a staging pane, set `@pi_name` on it: `tmux set-option -p -t %PANE @pi_name "build"`
+2. To list: scan all panes in the staging session (`list-panes -s`) plus the view pane, read `@pi_name` from each
+3. To show a pane: find it by `@pi_name`, swap it into the view by pane ID — single swap, one call
+4. The displaced pane goes wherever the new pane came from — does not matter, because identity is the label, not the position
 
-The label sticks to the pane regardless of where it has been moved. Step 3 always returns the pane to the correct slot because the pane itself carries the answer. `@pi_visible_staging_window` on the host window becomes redundant for this purpose (though it may still be useful for quick lookups without querying the view pane).
+This eliminates:
+- `@pi_staging_index` (return-address tracking)
+- two-swap sequence (return + fetch)
+- any dependency on staging window names matching pane contents
+- any position-based invariant that can get out of sync
 
-This is the same pane-option mechanism that caused the original PANE-META discovery problem, but used correctly: not for discovery (scanning all panes for a marker), but for identity (reading a label from a pane we already have a reference to).
+The current implementation uses `@pi_staging_index` + two-swap as an interim solution. Replace it with `@pi_name` + single pane-ID swap.
 
 **Verification:** After fix, `run a`, `run b`, `run c`, then `peek window: a` must return `VERIFY-A`, `peek window: b` must return `VERIFY-B`, `peek window: c` must return `VERIFY-C`.
 
