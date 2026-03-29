@@ -210,7 +210,8 @@ describe("tmux mode", () => {
 			if (cmd.includes("has-session -t =test-abc-stg")) return "ok\n";
 			if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index} #{pane_id}\"")) return "0 %1\n1 %42\n";
 			if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) return "0\t%1\tzsh\t1001\n1\t%42\tzsh\t4242\n";
-			if (cmd.includes("display -p -t =5:0 \"#{@pi_visible_owner_session}\t#{@pi_visible_staging_window}\"")) return "test-abc\t1\n";
+			if (cmd.includes("display -p -t %42 \"#{@pi_home_window}\"")) return "1\n";
+			if (cmd.includes("display -p -t =5:0.1 \"#{@pi_home_window}\"")) return "1\n";
 			if (cmd.includes("list-panes -s -t =test-abc-stg -F \"#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) {
 				return "0\tlogs\t%51\tnode\t5151\n1\tbuild\t%99\tzsh\t9999\n2\tci\t%77\tbash\t7777\n";
 			}
@@ -222,11 +223,9 @@ describe("tmux mode", () => {
 			if (cmd.includes("capture-pane -t %51")) return "captured logs\n";
 			if (cmd.includes("swap-pane -d -s =5:0.1 -t =test-abc-stg:0.0")) return "\n";
 			if (cmd.includes("swap-pane -d -s =5:0.1 -t =test-abc-stg:1.0")) return "\n";
-			if (cmd.includes("set-window-option -t =5:0 @pi_visible_staging_window 0")) return "\n";
-			if (cmd.includes("set-window-option -t =5:0 @pi_visible_owner_session \"test-abc\"")) return "\n";
-			if (cmd.includes("set-window-option -u -t =5:0 @pi_visible_staging_window")) return "\n";
-			if (cmd.includes("set-window-option -u -t =5:0 @pi_visible_owner_session")) return "\n";
-			if (cmd.includes("kill-pane -t =test-abc-stg:1.0")) return "\n";
+			if (cmd.includes("set-option -p")) return "\n";
+			if (cmd.includes("kill-pane -t =5:0.1")) return "\n";
+			if (cmd.includes("kill-window -t =test-abc-stg:1")) return "\n";
 			return "\n";
 		});
 	}
@@ -252,14 +251,18 @@ describe("tmux mode", () => {
 		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("swap-pane"))).toBe(false);
 	});
 
-	test("focus swaps an offscreen staging window into view by stable window identity", () => {
+	test("focus returns current view pane to its home then swaps the target in", () => {
 		mockTmuxInventory();
 
 		const result = actionFocus("test-abc", "logs", "5");
 		expect(result.ok).toBe(true);
 		expect(result.message).toContain("Focused pane %51");
-		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("swap-pane -d -s =5:0.1 -t =test-abc-stg:0.0"))).toBe(true);
-		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("@pi_visible_staging_window 0"))).toBe(true);
+		// Two-swap: first return current view pane (home=1) to staging:1, then fetch staging:0
+		const calls = execSyncMock.mock.calls.map((args) => String(args[0]));
+		const returnSwap = calls.findIndex((c) => c.includes("swap-pane -d -s =5:0.1 -t =test-abc-stg:1.0"));
+		const fetchSwap = calls.findIndex((c) => c.includes("swap-pane -d -s =5:0.1 -t =test-abc-stg:0.0"));
+		expect(returnSwap).toBeGreaterThanOrEqual(0);
+		expect(fetchSwap).toBeGreaterThan(returnSwap);
 	});
 
 	test("peek captures the visible pane output for the visible staging window", () => {
@@ -281,13 +284,13 @@ describe("tmux mode", () => {
 		expect(result.message).toContain(":0  logs  (offscreen, running, pane %51)");
 	});
 
-	test("close swaps a visible pane back to staging before killing it", () => {
+	test("close kills view pane and staging window for a visible pane", () => {
 		mockTmuxInventory();
 
 		const result = actionClose("test-abc", "build", "5");
 		expect(result.ok).toBe(true);
-		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("swap-pane -d -s =5:0.1 -t =test-abc-stg:1.0"))).toBe(true);
-		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("kill-pane -t =test-abc-stg:1.0"))).toBe(true);
+		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("kill-pane -t =5:0.1"))).toBe(true);
+		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("kill-window -t =test-abc-stg:1"))).toBe(true);
 	});
 });
 

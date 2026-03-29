@@ -13,8 +13,7 @@ export function run(cmd: string): string {
 }
 
 const IDLE_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", "csh"]);
-const VISIBLE_STAGING_WINDOW_OPTION = "@pi_visible_staging_window";
-const VISIBLE_OWNER_SESSION_OPTION = "@pi_visible_owner_session";
+const HOME_WINDOW_OPTION = "@pi_home_window";
 
 /** Run a shell command, returning stdout on success or null on any error. */
 export function tryRun(cmd: string): string | null {
@@ -153,8 +152,20 @@ export function createStagingWindow(staging: string, cwd: string, name: string):
  * We intentionally use `swap-pane` rather than break/join or hidden-window
  * tricks because those earlier approaches either flashed or disturbed layout.
  */
+/**
+ * Swap a staging pane into the view. If the view already holds a pane with
+ * @pi_home_window, return it to its home staging slot first (two-swap).
+ */
 export function swapViewPane(session: string, staging: string, stagingIdx: number, hostWindowIndex = 0): void {
-	run(`tmux swap-pane -d -s ${tmuxSessionTarget(session)}:${hostWindowIndex}.1 -t ${tmuxSessionTarget(staging)}:${stagingIdx}.0`);
+	const viewTarget = `${tmuxSessionTarget(session)}:${hostWindowIndex}.1`;
+	const currentHome = tryRun(`tmux display -p -t ${viewTarget} "#{${HOME_WINDOW_OPTION}}"`);
+	if (currentHome && currentHome.trim()) {
+		const homeIdx = Number.parseInt(currentHome.trim(), 10);
+		if (!Number.isNaN(homeIdx)) {
+			run(`tmux swap-pane -d -s ${viewTarget} -t ${tmuxSessionTarget(staging)}:${homeIdx}.0`);
+		}
+	}
+	run(`tmux swap-pane -d -s ${viewTarget} -t ${tmuxSessionTarget(staging)}:${stagingIdx}.0`);
 }
 
 /**
@@ -164,14 +175,9 @@ export function respawnStagingWindow(staging: string, windowIdx: number, cwd: st
 	run(`tmux respawn-pane -k -t ${tmuxSessionTarget(staging)}:${windowIdx}.0 -c "${cwd}"`);
 }
 
-export function setVisibleStagingWindow(hostSession: string, ownerSession: string, windowIndex: number, hostWindowIndex = 0): void {
-	run(`tmux set-window-option -t ${tmuxSessionTarget(hostSession)}:${hostWindowIndex} ${VISIBLE_STAGING_WINDOW_OPTION} ${windowIndex}`);
-	run(`tmux set-window-option -t ${tmuxSessionTarget(hostSession)}:${hostWindowIndex} ${VISIBLE_OWNER_SESSION_OPTION} "${tmuxEscape(ownerSession)}"`);
-}
-
-export function clearVisibleStagingWindow(hostSession: string, hostWindowIndex = 0): void {
-	tryRun(`tmux set-window-option -u -t ${tmuxSessionTarget(hostSession)}:${hostWindowIndex} ${VISIBLE_STAGING_WINDOW_OPTION}`);
-	tryRun(`tmux set-window-option -u -t ${tmuxSessionTarget(hostSession)}:${hostWindowIndex} ${VISIBLE_OWNER_SESSION_OPTION}`);
+/** Label a pane with its home staging window index. Survives swap-pane. */
+export function setHomeWindow(paneId: string, windowIndex: number): void {
+	run(`tmux set-option -p -t ${paneId} ${HOME_WINDOW_OPTION} ${windowIndex}`);
 }
 
 /** Read the current pane ID for a window target. Returns null if unavailable. */
@@ -213,18 +219,13 @@ function getViewPaneInfo(hostSession: string, hostWindowIndex = 0): { paneId: st
 	return null;
 }
 
-function getVisibleStagingWindow(ownerSession: string, hostSession: string, hostWindowIndex = 0): number | undefined {
+function getVisibleStagingWindow(hostSession: string, hostWindowIndex = 0): number | undefined {
 	const viewPane = getViewPaneInfo(hostSession, hostWindowIndex);
 	if (!viewPane) return undefined;
-	const raw = tryRun(
-		`tmux display -p -t ${tmuxSessionTarget(hostSession)}:${hostWindowIndex} "#{${VISIBLE_OWNER_SESSION_OPTION}}\t#{${VISIBLE_STAGING_WINDOW_OPTION}}"`,
-	);
-	if (!raw) return undefined;
-	const parts = raw.split("\t");
-	const visibleOwnerSession = parts[0] ?? "";
-	const visibleWindow = Number.parseInt(parts[1] ?? "", 10);
-	if (visibleOwnerSession !== ownerSession || Number.isNaN(visibleWindow)) return undefined;
-	return visibleWindow;
+	const raw = tryRun(`tmux display -p -t ${viewPane.paneId} "#{${HOME_WINDOW_OPTION}}"`);
+	if (!raw || !raw.trim()) return undefined;
+	const idx = Number.parseInt(raw.trim(), 10);
+	return Number.isNaN(idx) ? undefined : idx;
 }
 
 /** List all managed panes for a project session by stable staging-window identity. */
@@ -232,7 +233,7 @@ export function listManagedPanes(ownerSession: string, hostSession = ownerSessio
 	const staging = deriveStagingName(ownerSession);
 	if (!isSessionAlive(staging)) return [];
 
-	const visibleWindowIndex = getVisibleStagingWindow(ownerSession, hostSession, hostWindowIndex);
+	const visibleWindowIndex = getVisibleStagingWindow(hostSession, hostWindowIndex);
 	const viewPane = visibleWindowIndex === undefined ? null : getViewPaneInfo(hostSession, hostWindowIndex);
 	const raw = tryRun(
 		`tmux list-panes -s -t ${tmuxSessionTarget(staging)} -F "#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}"`,
