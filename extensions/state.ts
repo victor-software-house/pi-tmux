@@ -37,6 +37,8 @@ let cached: TmuxSessionStateV1 | null = null;
 
 /** Host session name, detected once and cached for the lifetime of this pi session. */
 let cachedHostSession: string | null | undefined = undefined; // undefined = not yet detected
+/** Host window index, detected once from TMUX_PANE. */
+let cachedHostWindowIndex: number | undefined = undefined;
 /** Number of failed host detection attempts. */
 let hostDetectFailures = 0;
 const MAX_HOST_DETECT_RETRIES = 3;
@@ -50,6 +52,7 @@ export function getCachedState(): TmuxSessionStateV1 | null {
 export function clearCache(): void {
 	cached = null;
 	cachedHostSession = undefined;
+	cachedHostWindowIndex = undefined;
 	hostDetectFailures = 0;
 }
 
@@ -73,9 +76,25 @@ function getHostSession(): string | null {
 		return null;
 	}
 	if (hostDetectFailures >= MAX_HOST_DETECT_RETRIES) {
-		// Already exhausted retries — don't keep hammering
 		return null;
 	}
+	// TMUX_PANE is the source of truth for Pi's own tmux location.
+	const paneId = process.env.TMUX_PANE;
+	if (paneId) {
+		const raw = tryRun(`tmux display -p -t ${paneId} "#{session_name}\t#{window_index}"`);
+		if (raw) {
+			const parts = raw.trim().split("\t");
+			const name = parts[0] ?? "";
+			const winIdx = Number.parseInt(parts[1] ?? "", 10);
+			if (name && !Number.isNaN(winIdx)) {
+				cachedHostSession = name;
+				cachedHostWindowIndex = winIdx;
+				hostDetectFailures = 0;
+				return name;
+			}
+		}
+	}
+	// Fallback: display-message from the current client
 	const raw = tryRun("tmux display-message -p '#{session_name}'");
 	const name = raw?.trim() || null;
 	if (name) {
@@ -85,6 +104,13 @@ function getHostSession(): string | null {
 		hostDetectFailures++;
 	}
 	return name;
+}
+
+function getHostWindowIndex(): number {
+	if (cachedHostWindowIndex !== undefined) return cachedHostWindowIndex;
+	// Force detection via getHostSession which populates cachedHostWindowIndex
+	getHostSession();
+	return cachedHostWindowIndex ?? 0;
 }
 
 /**
@@ -160,6 +186,8 @@ export interface ResolvedBinding {
 	stagingSessionName: string;
 	/** The CC-attached host session, or same as tmuxSessionName when not in CC mode. */
 	hostSessionName: string;
+	/** The tmux window index within the host session where Pi is running. */
+	hostWindowIndex: number;
 	/** True if the tmux session was just (re)created by the resolver. */
 	recreated: boolean;
 }
@@ -210,6 +238,7 @@ export function getOrCreateBinding(
 		tmuxSessionName: state.tmuxSessionName,
 		stagingSessionName: deriveStagingName(state.tmuxSessionName),
 		hostSessionName: host,
+		hostWindowIndex: getHostWindowIndex(),
 		recreated,
 	};
 }

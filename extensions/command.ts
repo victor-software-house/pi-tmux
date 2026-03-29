@@ -73,8 +73,12 @@ export function registerTmuxCommand(pi: ExtensionAPI): void {
 			if (parts.length >= 2 && windowTargetSubs.has(sub)) {
 				const root = resolveProjectRoot(process.cwd());
 				const session = deriveSessionName(root);
+				const tmuxPane = process.env.TMUX_PANE;
+				const hostRaw = tmuxPane ? tryRun(`tmux display -p -t ${tmuxPane} "#{session_name}\t#{window_index}"`) : null;
+				const hostName = hostRaw?.split("\t")[0]?.trim() ?? session;
+				const hostWinIdx = Number.parseInt(hostRaw?.split("\t")[1] ?? "", 10) || 0;
 				const windowItems = process.env.TMUX
-					? listManagedPanes(session, tryRun("tmux display-message -p '#{session_name}'")?.trim() ?? session).map((pane) => ({
+					? listManagedPanes(session, hostName, hostWinIdx).map((pane) => ({
 						value: `${sub} :${pane.windowIndex}`,
 						label: `:${pane.windowIndex}  ${pane.title}${pane.visible ? "  (visible)" : ""}`,
 						description: pane.title,
@@ -116,14 +120,14 @@ export function registerTmuxCommand(pi: ExtensionAPI): void {
 			if (sub in attachModes) {
 				const layout = attachModes[sub];
 				if (!layout) return;
-				notify(ctx, actionAttach(session, ctx.cwd, { layout, window: windowArg, hostSession: binding.hostSessionName }));
+				notify(ctx, actionAttach(session, ctx.cwd, { layout, window: windowArg, hostSession: binding.hostSessionName, hostWindowIndex: binding.hostWindowIndex }));
 				return;
 			}
 
-			if (sub === "list" || sub === "show") { notify(ctx, actionList(session, binding.hostSessionName)); return; }
-			if (sub === "cat") return handleCat(ctx, pi, session, binding.hostSessionName, windowArg);
+			if (sub === "list" || sub === "show") { notify(ctx, actionList(session, binding.hostSessionName, binding.hostWindowIndex)); return; }
+			if (sub === "cat") return handleCat(ctx, pi, session, binding.hostSessionName, binding.hostWindowIndex, windowArg);
 			if (sub === "clear") { notify(ctx, actionClear(session)); return; }
-			if (sub === "kill") { notify(ctx, actionKill(session)); return; }
+			if (sub === "kill") { notify(ctx, actionKill(session, binding.hostSessionName, binding.hostWindowIndex)); return; }
 
 			if (sub) {
 				ctx.ui.notify(`Unknown: /tmux ${sub}`, "warning");
@@ -500,9 +504,9 @@ function parseWindowArg(raw: string): number | undefined {
 	return Number.isNaN(n) ? undefined : n;
 }
 
-async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session: string, hostSession: string, windowArg?: number): Promise<void> {
+async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session: string, hostSession: string, hostWindowIndex: number, windowArg?: number): Promise<void> {
 	// Quick session check for the interactive picker path
-	const listResult = actionList(session, hostSession);
+	const listResult = actionList(session, hostSession, hostWindowIndex);
 	if (!listResult.ok) {
 		ctx.ui.notify(listResult.message, "error");
 		return;
@@ -515,7 +519,7 @@ async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session
 	} else {
 		// Show interactive picker
 		if (process.env.TMUX) {
-			const panes = listManagedPanes(session, hostSession);
+			const panes = listManagedPanes(session, hostSession, hostWindowIndex);
 			const options = ["all panes", ...panes.map((pane) => `:${pane.windowIndex}  ${pane.title}${pane.visible ? "  (visible)" : ""}`)];
 			const choice = await ctx.ui.select("Capture output from:", options);
 			if (choice === undefined || choice === null) return;
@@ -550,7 +554,7 @@ async function handleCat(ctx: ExtensionCommandContext, pi: ExtensionAPI, session
 		}
 	}
 
-	const result = actionPeek(session, target, hostSession);
+	const result = actionPeek(session, target, hostSession, hostWindowIndex);
 	if (!result.ok) {
 		ctx.ui.notify(result.message, "error");
 		return;

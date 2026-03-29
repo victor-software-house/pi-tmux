@@ -8,9 +8,9 @@ import type { AttachLayout } from "./types.js";
 import { shellQuote, tmuxSessionTarget } from "./session.js";
 
 export interface TerminalAPI {
-	hasAttachedPane(tmuxSession: string): boolean;
-	closeAttachedSessions(tmuxSession: string): void;
-	openTerminal(session: string, mode: AttachLayout, tmuxWindow?: number): string;
+	hasAttachedPane(tmuxSession: string, windowIndex?: number): boolean;
+	closeAttachedSessions(tmuxSession: string, windowIndex?: number): void;
+	openTerminal(session: string, mode: AttachLayout, tmuxWindow?: number, hostWindowIndex?: number): string;
 }
 
 function loadImpl(): TerminalAPI {

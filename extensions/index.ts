@@ -76,6 +76,7 @@ export default function (pi: ExtensionAPI) {
 			const binding = getOrCreateBinding(pi, ctx.sessionManager, ctx.cwd);
 			const session = binding.tmuxSessionName;
 			const hostSession = binding.hostSessionName;
+			const hostWindowIndex = binding.hostWindowIndex;
 
 			switch (params.action) {
 				case "run": {
@@ -150,6 +151,7 @@ export default function (pi: ExtensionAPI) {
 								layout: currentSettings.defaultLayout,
 								window: windowIndex as number,
 								hostSession,
+								hostWindowIndex,
 							});
 							message += "\n" + attach.message;
 						}

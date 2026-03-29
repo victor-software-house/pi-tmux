@@ -14,39 +14,38 @@ import { tryRun, tmuxSessionTarget } from "./session.js";
 // Track the view pane ID so we know if we already have one.
 let viewPaneId: string | null = null;
 
-function findViewPaneId(tmuxSession: string): string | null {
-	const panes = tryRun(`tmux list-panes -t ${tmuxSessionTarget(tmuxSession)}:0 -F "#{pane_index}\t#{pane_id}"`);
+function findViewPaneId(tmuxSession: string, windowIndex = 0): string | null {
+	const panes = tryRun(`tmux list-panes -t ${tmuxSessionTarget(tmuxSession)}:${windowIndex} -F "#{pane_index}\t#{pane_id}"`);
 	if (!panes) return null;
 	const existing = panes.split("\n").find((line) => line.startsWith("1\t"));
 	if (!existing) return null;
 	return existing.split("\t")[1] ?? null;
 }
 
-export function hasAttachedPane(tmuxSession: string): boolean {
-	viewPaneId = findViewPaneId(tmuxSession);
+export function hasAttachedPane(tmuxSession: string, windowIndex = 0): boolean {
+	viewPaneId = findViewPaneId(tmuxSession, windowIndex);
 	return viewPaneId !== null;
 }
 
-export function closeAttachedSessions(tmuxSession: string): void {
-	const paneId = viewPaneId ?? findViewPaneId(tmuxSession);
+export function closeAttachedSessions(tmuxSession: string, windowIndex = 0): void {
+	const paneId = viewPaneId ?? findViewPaneId(tmuxSession, windowIndex);
 	if (!paneId) return;
 	tryRun(`tmux kill-pane -t ${paneId}`);
 	viewPaneId = null;
 }
 
-export function openTerminal(session: string, mode: AttachLayout, _tmuxWindow?: number): string {
+export function openTerminal(session: string, mode: AttachLayout, _tmuxWindow?: number, hostWindowIndex = 0): string {
 	const isSplit = mode === "split-vertical" || mode === "split-horizontal";
 
 	if (isSplit) {
-		// Check if view pane already exists (pane 1 of window 0)
-		const existingPaneId = findViewPaneId(session);
+		const existingPaneId = findViewPaneId(session, hostWindowIndex);
 		if (existingPaneId) {
 			viewPaneId = existingPaneId;
 			return "View pane already visible.";
 		}
 
 		const flag = mode === "split-vertical" ? "-h" : "-v";
-		const raw = tryRun(`tmux split-window ${flag} -t ${tmuxSessionTarget(session)}:0 -d -P -F "#{pane_id}"`);
+		const raw = tryRun(`tmux split-window ${flag} -t ${tmuxSessionTarget(session)}:${hostWindowIndex} -d -P -F "#{pane_id}"`);
 		if (!raw) return "Failed to create split pane.";
 		viewPaneId = raw.trim();
 		return `Opened ${mode.replace("split-", "")} split (${viewPaneId}).`;
