@@ -99,7 +99,17 @@ This architecture works at the tmux level: commands execute, output appears in t
 
 Result: staging `:1` has old shell, `:2` has `a`-pane, `:3` has `b`-pane, view has `c`-pane.
 
-**Fix direction:** Before swapping the new pane into the view, swap the current view pane back to its original staging slot first. Use the `@pi_visible_staging_window` tracking to know which slot to return it to. The sequence becomes: (1) swap current view pane back to its tracked staging slot, (2) swap new staging pane into the view, (3) update the visible-staging-window tracker.
+**Fix direction:** The fix is deterministic because `@pi_visible_staging_window` already tracks which staging slot the current view pane came from. Before every new swap, restore the invariant first:
+
+1. Read `@pi_visible_staging_window` from the host window (e.g. returns `:2`)
+2. If a view pane exists, swap it back: `swap-pane -d -s host:W.1 -t staging:2.0`
+3. Now every pane is in its correct staging slot
+4. Swap the new pane in: `swap-pane -d -s host:W.1 -t staging:3.0`
+5. Update `@pi_visible_staging_window` to `3`
+
+This is a two-swap sequence (return + fetch) instead of the current single swap (fetch only). Step 2 is skipped when there is no previous visible pane (first run). The tracker makes this fully deterministic — no guessing, no rotation.
+
+Implementation: update `swapViewPane()` in `session.ts` to accept the previous staging index from the tracker, perform the return swap, then the fetch swap. Callers already read and write the tracker via `setVisibleStagingWindow` / `getVisibleStagingWindow`.
 
 **Verification:** After fix, `run a`, `run b`, `run c`, then `peek window: a` must return `VERIFY-A`, `peek window: b` must return `VERIFY-B`, `peek window: c` must return `VERIFY-C`.
 
