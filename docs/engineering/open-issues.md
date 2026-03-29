@@ -8,19 +8,21 @@
 
 **Direction:** `markManagedPane` and `getPaneId` should always track the **staging** pane ID, not the view pane. The view pane is a display slot — its content changes via `swap-pane`. Track panes by their staging session position, not by ID in the host.
 
-## 2. Stale `@pi_title` on reused staging panes
+## 2. `@pi_managed` / `@pi_title` pane metadata is fundamentally broken with swap-pane
 
-**Symptom:** Pane `%19` has `@pi_title=test1` instead of `reload-verify` after window reuse.
+**Symptom:** After multiple runs, `list`, `peek`, `close`, `focus` by name or index all fail or resolve to wrong panes. `@pi_title` ends up on the wrong pane.
 
-**Root cause:** `setManagedPaneTitle` targets the pane ID, but after `swap-pane` the pane moved to a different position. The tmux user option (`@pi_title`) stays on the original pane.
+**Root cause:** `swap-pane` moves pane IDs between positions but `@pi_*` user options follow the pane ID, not the staging window position. After each swap, metadata is on the wrong pane.
 
-**Direction:** Update `@pi_title` on the staging pane **after** respawn, before swap. Or always resolve by staging window index instead of pane ID.
+**Confirmed:** Staging **window names** (`tmux list-windows -F '#{window_name}'`) are always correct and survive swaps. The staging windows are the real source of truth.
 
-## 3. `peek` resolves by managed pane name, misses swapped panes
-
-**Symptom:** `peek reload-verify` returns "No pane" because managed pane list has stale titles.
-
-**Direction:** `peek` in tmux mode should resolve the target against staging window names (`tmux list-windows -t stg`), not managed pane metadata. Window names are set by `rename-window` and survive swaps.
+**Direction:** Remove `@pi_managed` / `@pi_title` / `@pi_owner_session` pane metadata entirely. Replace `listManagedPanes` / `resolveManagedPane` with staging window queries:
+- Resolve by name: `tmux list-windows -t stg -F '#{window_index}\t#{window_name}'` and match
+- Resolve by index: direct staging window index
+- `peek`: `capture-pane -t stg:{index}.0`
+- `close`: `kill-window -t stg:{index}`
+- `list`: `list-windows -t stg`
+- This eliminates all pane ID tracking issues in one change
 
 ## 4. Completion notifications truncate output to 20 lines
 
@@ -53,7 +55,15 @@
 
 **Direction:** Complement `pane_current_command` with `pane_pid` subprocess check (`pgrep -P $pid`) or use shell integration markers to detect true command completion. Alternatively, use `pipe-pane` logs to detect the prompt appearing after command output.
 
-## 6. `attach` returns "View pane already visible" without verifying visibility
+## 6. Focus reporting escape sequences leak into swapped panes
+
+**Symptom:** `^[[I` (focus gained) and `^[[O` (focus lost) appear as raw text in the view pane when clicking in/out.
+
+**Root cause:** `focus-events on` in global tmux config causes tmux to send focus sequences to panes. Swapped-in panes with blocking commands (read, sleep) don't consume them, so they render as raw text.
+
+**Direction:** Send `printf '\e[?1004l'` (disable focus reporting) to the view pane after each swap. Or set `focus-events off` per-pane if tmux supports it.
+
+## 7. `attach` returns "View pane already visible" without verifying visibility
 
 **Symptom:** `attach` says visible but user may not see a split if the view pane was killed externally.
 
