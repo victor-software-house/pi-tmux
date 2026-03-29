@@ -17,6 +17,7 @@ import { buildParams, buildDescription, buildPromptSnippet, buildPromptGuideline
 import { registerTmuxCommand, initCommandSettings, initCommandPi } from "./command.js";
 import { registerPromoteCommand } from "./promote.js";
 import { getOrCreateBinding, rehydrate, clearCache, notifySessionCreated } from "./state.js";
+import { tryRun } from "./session.js";
 
 function toToolResult(result: { ok: boolean; message: string; details?: Record<string, unknown> }) {
 	return {
@@ -27,6 +28,13 @@ function toToolResult(result: { ok: boolean; message: string; details?: Record<s
 
 export default function (pi: ExtensionAPI) {
 	let currentSettings = loadSettings();
+
+	// Enable extended-keys on pi's own tmux session so pi's startup check
+	// passes without polluting other sessions (session-scoped, no -g).
+	if (process.env.TMUX) {
+		tryRun("tmux set extended-keys always");
+		tryRun("tmux set extended-keys-format csi-u");
+	}
 
 	initCommandSettings(currentSettings);
 	initCommandPi(pi);
