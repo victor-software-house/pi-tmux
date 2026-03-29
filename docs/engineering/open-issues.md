@@ -70,11 +70,13 @@ Fixed by capturing full scrollback (`capture-pane -S -`) in both completion noti
 
 Note: uses tmux scrollback buffer (typically 2000 lines). For commands that produce more output than the scrollback limit, older output is still lost. A future enhancement could use `pipe-pane` to log to files, but the scrollback approach covers the common case.
 
+### FOCUS-LEAK (fixed)
+
+`^[[I` and `^[[O` focus event escape sequences appeared as raw text in the view pane. Fixed by sending `ESC[?1004l` to the view pane after every `swap-pane`.
+
 ---
 
 ## Active issues
-
----
 
 ### COMPLETE-BUILTIN: completion tracker fires prematurely for shell builtins
 
@@ -85,16 +87,6 @@ Note: uses tmux scrollback buffer (typically 2000 lines). For commands that prod
 **Why this matters:** The model moves on. The operator sees the command still waiting. `silenceTimeout` never fires.
 
 **Fix direction:** Detect shell-at-prompt vs shell-running-builtin using shell integration markers or prompt pattern detection from `pipe-pane` logs.
-
----
-
-### FOCUS-LEAK: focus event escape sequences leak into pane output
-
-**Status:** open
-
-**What happens:** `^[[I` and `^[[O` appear as raw text in the view pane when the operator clicks in and out.
-
-**Fix direction:** After each `swap-pane` into the view, send `\e[?1004l` to disable focus event reporting for that pane.
 
 ---
 

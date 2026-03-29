@@ -59,8 +59,8 @@ Completion notifications and peek now report truncation metadata (`N lines total
 ### COMPLETE-BUILTIN: Fix completion tracker for shell builtins
 Builtins like `read` and `wait` cause premature completion because `pane_current_command` stays as the shell name. The model reports commands done before the operator has interacted. See `docs/engineering/open-issues.md` COMPLETE-BUILTIN.
 
-### TMUX-ENV-WARN: Add tmux environment warnings on session start
-Check for jixiuf/tmux fork (`kitty-keys` option) and warn if not present. Surface as a widget or notification on session_start.
+### ~~TMUX-ENV-WARN~~ (done)
+`checkTmuxEnvironment()` wired into session_start. Warns about missing kitty-keys and extended-keys.
 
 ### ~~ATTACH-VERIFY~~ (done)
 See Critical section above.
@@ -76,8 +76,8 @@ Pi 0.63.2 added `ctx.signal` to extension contexts. Currently `actionRun` ignore
 ### SCHEMA-COMPAT: Use prepareArguments for schema migration
 Pi 0.64.0 added `ToolDefinition.prepareArguments` hook. Use it to handle resumed sessions where the tool schema may have changed without breaking old sessions.
 
-### FOCUS-LEAK: Fix focus reporting escape sequence leakage
-`^[[I` / `^[[O` appear as raw text in the view pane. See `docs/engineering/open-issues.md` FOCUS-LEAK.
+### ~~FOCUS-LEAK~~ (done)
+`ESC[?1004l` sent to view pane after every swap to suppress focus event escape sequences.
 
 ## Low priority
 
