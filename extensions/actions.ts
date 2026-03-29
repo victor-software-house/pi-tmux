@@ -104,7 +104,7 @@ export async function actionRun(session: string, opts: RunOpts): Promise<ActionR
 		sendCommandToPane(pane.paneId, opts.command);
 		const shouldShow = opts.autoFocus === "always";
 		if (shouldShow && !pane.visible) {
-			swapViewPane(host.session, staging, pane.windowIndex, host.windowIndex);
+			swapViewPane(host.session, pane.paneId, host.windowIndex);
 		}
 		const visible = shouldShow ? true : pane.visible;
 		return {
@@ -138,7 +138,7 @@ export async function actionRun(session: string, opts: RunOpts): Promise<ActionR
 		}
 		if (candidate) {
 			stagingIdx = candidate.windowIndex;
-			respawnStagingWindow(staging, stagingIdx, opts.cwd);
+			respawnStagingWindow(staging, stagingIdx, opts.cwd, windowName);
 			tryRun(`tmux rename-window -t ${tmuxSessionTarget(staging)}:${stagingIdx} "${tmuxEscape(windowName)}"`);
 			paneId = getPaneId(`${staging}:${stagingIdx}.0`);
 			lifecycle = "fresh-respawned";
@@ -162,8 +162,8 @@ export async function actionRun(session: string, opts: RunOpts): Promise<ActionR
 	}
 
 	const shouldShow = opts.autoFocus === "always";
-	if (shouldShow) {
-		swapViewPane(host.session, staging, stagingIdx, host.windowIndex);
+	if (shouldShow && paneId) {
+		swapViewPane(host.session, paneId, host.windowIndex);
 	}
 
 	const verb = lifecycle === "fresh-created" ? "Started fresh pane" : "Respawned pane";
@@ -220,7 +220,7 @@ export function actionFocus(session: string, target: number | string, host: Host
 	if (pane.visible) {
 		return { ok: true, message: `Pane ${pane.paneId} is already visible.`, details: { session, paneId: pane.paneId, window: pane.windowIndex } };
 	}
-	swapViewPane(host.session, deriveStagingName(session), pane.windowIndex, host.windowIndex);
+	swapViewPane(host.session, pane.paneId, host.windowIndex);
 	return { ok: true, message: `Focused pane ${pane.paneId} — ${pane.title}`, details: { session, paneId: pane.paneId, window: pane.windowIndex } };
 }
 
@@ -231,14 +231,12 @@ export function actionFocus(session: string, target: number | string, host: Host
 export function actionClose(session: string, target: number | string, host: HostTarget): ActionResult {
 	if (!hasActiveSession(session)) return { ok: false, message: `No active session '${session}'.` };
 
-	const staging = deriveStagingName(session);
 	const pane = resolveManagedPane(session, target, host.session, host.windowIndex);
 	if (!pane) return { ok: false, message: `No pane '${target}'.` };
 	if (pane.visible) {
 		tryRun(`tmux kill-pane -t ${tmuxSessionTarget(host.session)}:${host.windowIndex}.1`);
-		tryRun(`tmux kill-window -t ${tmuxSessionTarget(staging)}:${pane.windowIndex}`);
 	} else {
-		tryRun(`tmux kill-window -t ${tmuxSessionTarget(staging)}:${pane.windowIndex}`);
+		tryRun(`tmux kill-pane -t ${pane.paneId}`);
 	}
 	const remaining = listManagedPanes(session, host.session, host.windowIndex).length;
 	return { ok: true, message: `Closed pane ${pane.paneId}. ${remaining} managed pane(s) remain.`, details: { session, paneId: pane.paneId, window: pane.windowIndex } };
@@ -306,15 +304,13 @@ export function actionKill(session: string, host: HostTarget): ActionResult {
 export function actionClear(session: string, host: HostTarget): ActionResult {
 	if (!hasActiveSession(session)) return { ok: false, message: "No active session." };
 
-	const staging = deriveStagingName(session);
 	const idlePanes = listManagedPanes(session, host.session, host.windowIndex).filter((pane) => pane.idle);
 	if (idlePanes.length === 0) return { ok: true, message: "No idle panes to clear." };
 	for (const pane of idlePanes) {
 		if (pane.visible) {
 			tryRun(`tmux kill-pane -t ${tmuxSessionTarget(host.session)}:${host.windowIndex}.1`);
-			tryRun(`tmux kill-window -t ${tmuxSessionTarget(staging)}:${pane.windowIndex}`);
 		} else {
-			tryRun(`tmux kill-window -t ${tmuxSessionTarget(staging)}:${pane.windowIndex}`);
+			tryRun(`tmux kill-pane -t ${pane.paneId}`);
 		}
 	}
 	return { ok: true, message: `Cleared ${idlePanes.length} idle pane(s).` };

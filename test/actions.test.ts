@@ -50,59 +50,72 @@ function mockDeadSession(): void {
 	});
 }
 
-// Standard tmux inventory mock: staging session with 3 windows (logs, build, ci).
-// build is currently visible in the view pane (host:0.1).
+/**
+ * Standard inventory: 3 staging panes, one visible (build at staging:1).
+ *
+ * View pane (%42) has @pi_name=build → visible.
+ * Staging:0 has %51 (@pi_name=logs, running node).
+ * Staging:1 has %99 (no @pi_name — orphaned shell from swap, idle).
+ * Staging:2 has %77 (@pi_name=ci, idle bash).
+ */
 function mockTmuxInventory(): void {
 	execSyncMock.mockImplementation((_cmd?: string) => {
 		const cmd = _cmd ?? "";
 		if (cmd.includes("has-session -t =test-abc-stg")) return "ok\n";
+		// View pane detection
 		if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index} #{pane_id}\"")) return "0 %1\n1 %42\n";
 		if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) return "0\t%1\tzsh\t1001\n1\t%42\tzsh\t4242\n";
-		if (cmd.includes("display -p -t %42 \"#{@pi_staging_index}\"")) return "1\n";
-		if (cmd.includes("display -p -t =5:0.1 \"#{@pi_staging_index}\"")) return "1\n";
-		if (cmd.includes("list-panes -s -t =test-abc-stg -F \"#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) {
-			return "0\tlogs\t%51\tnode\t5151\n1\tbuild\t%99\tzsh\t9999\n2\tci\t%77\tbash\t7777\n";
+		// @pi_name on view pane
+		if (cmd.includes("display -p -t %42 \"#{@pi_name}\"")) return "build\n";
+		// Staging panes with @pi_name column
+		if (cmd.includes("list-panes -s -t =test-abc-stg -F \"#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\t#{@pi_name}\"")) {
+			return "0\t%51\tnode\t5151\tlogs\n1\t%99\tzsh\t9999\t\n2\t%77\tbash\t7777\tci\n";
 		}
+		// Child process checks
 		if (cmd.includes("pgrep -P 4242")) throw new Error("no children");
 		if (cmd.includes("pgrep -P 5151")) return "5152\n";
 		if (cmd.includes("pgrep -P 7777")) throw new Error("no children");
+		// send-keys, capture, swap, kill
 		if (cmd.includes("send-keys -t %42")) return "\n";
 		if (cmd.includes("capture-pane -t %42")) return "visible build output\n";
 		if (cmd.includes("capture-pane -t %51")) return "captured logs\n";
-		if (cmd.includes("swap-pane -d -s =5:0.1 -t =test-abc-stg:0.0")) return "\n";
-		if (cmd.includes("swap-pane -d -s =5:0.1 -t =test-abc-stg:1.0")) return "\n";
+		if (cmd.includes("capture-pane -t %77")) return "captured ci\n";
+		if (cmd.includes("swap-pane -d -s =5:0.1 -t %51")) return "\n";
+		if (cmd.includes("swap-pane -d -s =5:0.1 -t %77")) return "\n";
 		if (cmd.includes("set-option -p")) return "\n";
 		if (cmd.includes("kill-pane -t =5:0.1")) return "\n";
-		if (cmd.includes("kill-window -t =test-abc-stg:1")) return "\n";
+		if (cmd.includes("kill-pane -t %51")) return "\n";
+		if (cmd.includes("kill-pane -t %77")) return "\n";
 		if (cmd.includes("kill-session -t =test-abc-stg")) return "\n";
 		return "\n";
 	});
 }
 
-// Staging session with 2 windows: window 0 (dev) is idle and offscreen,
-// window 1 (build) is visible in the view pane.
+/**
+ * Staging with an idle pane: 2 staging windows, view has pane from staging:1.
+ * Staging:0 has %50 (@pi_name=dev, idle zsh) — reusable.
+ * Staging:1 has %99 (no @pi_name — orphan, idle).
+ * View %42 has @pi_name=build.
+ */
 function mockStagingWithIdlePane(): void {
 	execSyncMock.mockImplementation((_cmd?: string) => {
 		const cmd = _cmd ?? "";
 		if (cmd.includes("has-session -t =test-abc-stg")) return "ok\n";
 		if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index} #{pane_id}\"")) return "0 %1\n1 %42\n";
 		if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) return "0\t%1\tzsh\t1001\n1\t%42\tzsh\t4242\n";
-		// View pane %42 is from staging window 1 (build)
-		if (cmd.includes("display -p -t %42 \"#{@pi_staging_index}\"")) return "1\n";
-		if (cmd.includes("display -p -t =5:0.1 \"#{@pi_staging_index}\"")) return "1\n";
-		// Staging has 2 windows: 0 (dev, idle) and 1 (build, currently in view)
-		if (cmd.includes("list-panes -s -t =test-abc-stg -F \"#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) {
-			return "0\tdev\t%50\tzsh\t5050\n1\tbuild\t%99\tzsh\t9999\n";
+		if (cmd.includes("display -p -t %42 \"#{@pi_name}\"")) return "build\n";
+		if (cmd.includes("list-panes -s -t =test-abc-stg -F \"#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\t#{@pi_name}\"")) {
+			return "0\t%50\tzsh\t5050\tdev\n1\t%99\tzsh\t9999\t\n";
 		}
 		if (cmd.includes("pgrep -P 4242")) throw new Error("no children");
 		if (cmd.includes("pgrep -P 5050")) throw new Error("no children");
 		if (cmd.includes("pgrep -P 9999")) throw new Error("no children");
-		if (cmd.includes("respawn-window")) return "\n";
+		if (cmd.includes("respawn-pane")) return "\n";
 		if (cmd.includes("rename-window")) return "\n";
 		if (cmd.includes("display -p -t test-abc-stg:0.0 \"#{pane_id}\"")) return "%50\n";
 		if (cmd.includes("display -p -t =test-abc-stg:0.0 \"#{pane_id}\"")) return "%50\n";
-		// Wait for quiescence: return consistent cwd and cursor
-		if (cmd.includes("display -p -t %50 \"#{pane_current_path}|#{cursor_x},#{cursor_y}|#{pane_current_command}\"")) return "/tmp/project|0,0|zsh\n";
+		if (cmd.includes("display -p -t %50 \"#{pane_current_command}\t#{cursor_x}\t#{cursor_y}\"")) return "zsh\t5\t2\n";
+		if (cmd.includes("capture-pane -t %50 -p -S -5")) return "$ \n";
 		if (cmd.includes("send-keys -t %50")) return "\n";
 		if (cmd.includes("set-option -p")) return "\n";
 		if (cmd.includes("swap-pane")) return "\n";
@@ -110,26 +123,29 @@ function mockStagingWithIdlePane(): void {
 	});
 }
 
-// Mock for creating a new staging window
+/**
+ * Staging with one running pane: only 1 staging window, not idle.
+ * Forces new window creation.
+ */
 function mockNewStagingWindow(): void {
 	execSyncMock.mockImplementation((_cmd?: string) => {
 		const cmd = _cmd ?? "";
 		if (cmd.includes("has-session -t =test-abc-stg")) return "ok\n";
 		if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index} #{pane_id}\"")) return "0 %1\n1 %42\n";
-		if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) return "0\t%1\tzsh\t1001\n1\t%42\tzsh\t4242\n";
-		if (cmd.includes("display -p -t %42 \"#{@pi_staging_index}\"")) return "0\n";
-		if (cmd.includes("display -p -t =5:0.1 \"#{@pi_staging_index}\"")) return "0\n";
-		if (cmd.includes("list-panes -s -t =test-abc-stg -F \"#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) {
-			return "0\tdev\t%50\tnode\t5050\n";
+		if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) return "0\t%1\tzsh\t1001\n1\t%42\tnode\t4242\n";
+		if (cmd.includes("display -p -t %42 \"#{@pi_name}\"")) return "dev\n";
+		if (cmd.includes("list-panes -s -t =test-abc-stg -F \"#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\t#{@pi_name}\"")) {
+			return "0\t%50\tnode\t5050\tserver\n";
 		}
-		if (cmd.includes("pgrep -P 4242")) throw new Error("no children");
+		if (cmd.includes("pgrep -P 4242")) return "4243\n";
 		if (cmd.includes("pgrep -P 5050")) return "5051\n"; // running, not idle
 		if (cmd.includes("new-window -d -t =test-abc-stg")) return "\n";
 		if (cmd.includes("rename-window")) return "\n";
 		if (cmd.includes("display -p -t test-abc-stg:1.0 \"#{pane_id}\"")) return "%60\n";
 		if (cmd.includes("display -p -t =test-abc-stg:1.0 \"#{pane_id}\"")) return "%60\n";
 		// Wait for quiescence
-		if (cmd.includes("display -p -t %60 \"#{pane_current_path}|#{cursor_x},#{cursor_y}|#{pane_current_command}\"")) return "/tmp/project|0,0|zsh\n";
+		if (cmd.includes("display -p -t %60 \"#{pane_current_command}\t#{cursor_x}\t#{cursor_y}\"")) return "zsh\t5\t2\n";
+		if (cmd.includes("capture-pane -t %60 -p -S -5")) return "$ \n";
 		if (cmd.includes("send-keys -t %60")) return "\n";
 		if (cmd.includes("set-option -p")) return "\n";
 		if (cmd.includes("swap-pane")) return "\n";
@@ -250,18 +266,19 @@ describe("actionFocus()", () => {
 		expect(result.ok).toBe(false);
 	});
 
-	test("returns current view pane to its home then swaps the target in", () => {
+	test("swaps the target pane into the view by pane ID (single swap)", () => {
 		mockTmuxInventory();
 
 		const result = actionFocus("test-abc", "logs", defaultHost);
 		expect(result.ok).toBe(true);
 		expect(result.message).toContain("Focused pane %51");
-		// Two-swap: first return current view pane (staging_index=1) to staging:1, then fetch staging:0
+		// Single swap: swap view pane with the target pane by ID
 		const calls = execSyncMock.mock.calls.map((args) => String(args[0]));
-		const returnSwap = calls.findIndex((c) => c.includes("swap-pane -d -s =5:0.1 -t =test-abc-stg:1.0"));
-		const fetchSwap = calls.findIndex((c) => c.includes("swap-pane -d -s =5:0.1 -t =test-abc-stg:0.0"));
-		expect(returnSwap).toBeGreaterThanOrEqual(0);
-		expect(fetchSwap).toBeGreaterThan(returnSwap);
+		const singleSwap = calls.filter((c) => c.includes("swap-pane -d -s =5:0.1 -t %51"));
+		expect(singleSwap.length).toBe(1);
+		// No return swap — only one swap call total
+		const allSwaps = calls.filter((c) => c.includes("swap-pane"));
+		expect(allSwaps.length).toBe(1);
 	});
 
 	test("reports already visible for the current view pane", () => {
@@ -282,13 +299,22 @@ describe("actionClose()", () => {
 		expect(result.ok).toBe(false);
 	});
 
-	test("kills view pane and staging window for a visible pane", () => {
+	test("kills view pane for a visible pane", () => {
 		mockTmuxInventory();
 
 		const result = actionClose("test-abc", "build", defaultHost);
 		expect(result.ok).toBe(true);
 		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("kill-pane -t =5:0.1"))).toBe(true);
-		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("kill-window -t =test-abc-stg:1"))).toBe(true);
+		// No staging window kill — pane identity is by @pi_name, not window
+		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("kill-window"))).toBe(false);
+	});
+
+	test("kills pane by ID for a non-visible pane", () => {
+		mockTmuxInventory();
+
+		const result = actionClose("test-abc", "logs", defaultHost);
+		expect(result.ok).toBe(true);
+		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("kill-pane -t %51"))).toBe(true);
 	});
 });
 
@@ -329,14 +355,19 @@ describe("actionList()", () => {
 		expect(result.ok).toBe(false);
 	});
 
-	test("reports staging window indices with stable names", () => {
+	test("reports managed panes with stable names from @pi_name", () => {
 		mockTmuxInventory();
 
 		const result = actionList("test-abc", defaultHost);
 		expect(result.ok).toBe(true);
 		expect(result.message).toContain("managed pane(s)");
-		expect(result.message).toContain(":1  build  (visible, idle, pane %42)");
-		expect(result.message).toContain(":0  logs  (offscreen, running, pane %51)");
+		// build is visible (from view pane @pi_name), logs and ci from staging
+		expect(result.message).toContain("build");
+		expect(result.message).toContain("(visible, idle, pane %42)");
+		expect(result.message).toContain("logs");
+		expect(result.message).toContain("(offscreen, running, pane %51)");
+		expect(result.message).toContain("ci");
+		expect(result.message).toContain("(offscreen, idle, pane %77)");
 	});
 });
 
@@ -369,13 +400,16 @@ describe("actionClear()", () => {
 		expect(result.ok).toBe(false);
 	});
 
-	test("clears idle panes in staging", () => {
+	test("clears idle panes by pane ID", () => {
 		mockTmuxInventory();
 
 		const result = actionClear("test-abc", defaultHost);
 		expect(result.ok).toBe(true);
-		// build (visible, idle) and ci (offscreen, idle) should be cleared; logs (running) kept
+		// build (visible, idle) killed via view pane, ci (offscreen, idle) killed by pane ID
+		// logs (running) kept
 		expect(result.message).toContain("Cleared 2 idle pane(s)");
+		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("kill-pane -t =5:0.1"))).toBe(true);
+		expect(execSyncMock.mock.calls.some((args) => String(args[0]).includes("kill-pane -t %77"))).toBe(true);
 	});
 
 	test("reports no idle panes when all are running", () => {
@@ -384,9 +418,8 @@ describe("actionClear()", () => {
 			if (cmd.includes("has-session -t =test-abc-stg")) return "ok\n";
 			if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index} #{pane_id}\"")) return "0 %1\n1 %42\n";
 			if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) return "0\t%1\tzsh\t1001\n1\t%42\tnode\t4242\n";
-			if (cmd.includes("display -p -t %42 \"#{@pi_staging_index}\"")) return "0\n";
-			if (cmd.includes("display -p -t =5:0.1 \"#{@pi_staging_index}\"")) return "0\n";
-			if (cmd.includes("list-panes -s -t =test-abc-stg")) return "0\tdev\t%50\tnode\t5050\n";
+			if (cmd.includes("display -p -t %42 \"#{@pi_name}\"")) return "dev\n";
+			if (cmd.includes("list-panes -s -t =test-abc-stg")) return "0\t%50\tnode\t5050\tserver\n";
 			if (cmd.includes("pgrep -P 4242")) return "4243\n";
 			if (cmd.includes("pgrep -P 5050")) return "5051\n";
 			return "\n";

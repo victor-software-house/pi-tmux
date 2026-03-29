@@ -13,7 +13,7 @@ export function run(cmd: string): string {
 }
 
 const IDLE_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh", "csh"]);
-const STAGING_INDEX_OPTION = "@pi_staging_index";
+const NAME_OPTION = "@pi_name";
 
 /** Run a shell command, returning stdout on success or null on any error. */
 export function tryRun(cmd: string): string | null {
@@ -137,55 +137,39 @@ export function createStagingWindow(staging: string, cwd: string, name: string):
 			if (parts[1] === safeName) { idx = parseInt(parts[0] ?? "0", 10); break; }
 		}
 	}
-	// Label the pane with its home window so it can be returned after swap-pane
+	// Label the pane with its logical name — identity survives swap-pane
 	const paneId = tryRun(`tmux display -p -t ${tmuxSessionTarget(staging)}:${idx}.0 "#{pane_id}"`);
-	if (paneId) setStagingIndex(paneId.trim(), idx);
+	if (paneId) setPaneName(paneId.trim(), safeName);
 	return idx;
 }
 
 /**
- * Swap the visible command pane in the CC session with a pane from the
- * non-CC staging session.
+ * Swap a command pane into the view by pane ID.
  *
- * This preserves the behaviour discovered in manual testing:
- * - the command window is born outside the CC-attached session
- * - `swap-pane` changes what is visible in pane 1 of window 0
- * - no new CC window/tab is created during the switch
- * - the pane shown in the CC split behaves like the kind of native CC pane the
- *   operator wants while it is resident there
- *
- * We intentionally use `swap-pane` rather than break/join or hidden-window
- * tricks because those earlier approaches either flashed or disturbed layout.
+ * Uses `swap-pane` with `-d` so the view stays visible and focus stays on Pi.
+ * A single swap is sufficient because pane identity is tracked by the `@pi_name`
+ * pane option, not by which staging window a pane occupies. The displaced pane
+ * ends up in whatever staging window the incoming pane came from — its `@pi_name`
+ * label travels with it and remains correct regardless of position.
  */
-/**
- * Swap a staging pane into the view. If the view already holds a pane with
- * @pi_staging_index, return it to its staging slot first (two-swap).
- */
-export function swapViewPane(session: string, staging: string, stagingIdx: number, hostWindowIndex = 0): void {
-	const viewTarget = `${tmuxSessionTarget(session)}:${hostWindowIndex}.1`;
-	const currentStagingIdx = tryRun(`tmux display -p -t ${viewTarget} "#{${STAGING_INDEX_OPTION}}"`);
-	if (currentStagingIdx && currentStagingIdx.trim()) {
-		const returnIdx = Number.parseInt(currentStagingIdx.trim(), 10);
-		if (!Number.isNaN(returnIdx)) {
-			run(`tmux swap-pane -d -s ${viewTarget} -t ${tmuxSessionTarget(staging)}:${returnIdx}.0`);
-		}
-	}
-	run(`tmux swap-pane -d -s ${viewTarget} -t ${tmuxSessionTarget(staging)}:${stagingIdx}.0`);
+export function swapViewPane(hostSession: string, paneId: string, hostWindowIndex = 0): void {
+	const viewTarget = `${tmuxSessionTarget(hostSession)}:${hostWindowIndex}.1`;
+	run(`tmux swap-pane -d -s ${viewTarget} -t ${paneId}`);
 }
 
 /**
  * Respawn an idle staging window with a fresh shell (no new window creation).
  */
-export function respawnStagingWindow(staging: string, windowIdx: number, cwd: string): void {
+export function respawnStagingWindow(staging: string, windowIdx: number, cwd: string, name: string): void {
 	run(`tmux respawn-pane -k -t ${tmuxSessionTarget(staging)}:${windowIdx}.0 -c "${cwd}"`);
-	// Re-label the new pane with its home window (respawn creates a new pane ID)
+	// Re-label the new pane with its logical name (respawn creates a new pane ID)
 	const paneId = tryRun(`tmux display -p -t ${tmuxSessionTarget(staging)}:${windowIdx}.0 "#{pane_id}"`);
-	if (paneId) setStagingIndex(paneId.trim(), windowIdx);
+	if (paneId) setPaneName(paneId.trim(), name);
 }
 
-/** Label a pane with its staging window index. Survives swap-pane. */
-export function setStagingIndex(paneId: string, windowIndex: number): void {
-	run(`tmux set-option -p -t ${paneId} ${STAGING_INDEX_OPTION} ${windowIndex}`);
+/** Label a pane with its logical name. Survives swap-pane. */
+function setPaneName(paneId: string, name: string): void {
+	run(`tmux set-option -p -t ${paneId} ${NAME_OPTION} "${tmuxEscape(name)}"`);
 }
 
 /** Read the current pane ID for a window target. Returns null if unavailable. */
@@ -227,35 +211,79 @@ function getViewPaneInfo(hostSession: string, hostWindowIndex = 0): { paneId: st
 	return null;
 }
 
-function getVisibleStagingWindow(hostSession: string, hostWindowIndex = 0): number | undefined {
-	const viewPane = getViewPaneInfo(hostSession, hostWindowIndex);
-	if (!viewPane) return undefined;
-	const raw = tryRun(`tmux display -p -t ${viewPane.paneId} "#{${STAGING_INDEX_OPTION}}"`);
-	if (!raw || !raw.trim()) return undefined;
-	const idx = Number.parseInt(raw.trim(), 10);
-	return Number.isNaN(idx) ? undefined : idx;
+/** Read the @pi_name label from a pane. Returns null if unset. */
+function readPaneName(paneId: string): string | null {
+	const raw = tryRun(`tmux display -p -t ${paneId} "#{${NAME_OPTION}}"`);
+	if (!raw || !raw.trim()) return null;
+	return raw.trim();
 }
 
-/** List all managed panes for a project session by stable staging-window identity. */
+/**
+ * List all managed panes for a project session.
+ *
+ * Identity is the `@pi_name` pane option, which survives `swap-pane`.
+ * Scans both the staging session panes and the view pane in the host session.
+ * Panes without `@pi_name` (orphaned shells from swaps) are excluded.
+ */
 export function listManagedPanes(ownerSession: string, hostSession = ownerSession, hostWindowIndex = 0): ManagedPaneInfo[] {
 	const staging = deriveStagingName(ownerSession);
 	if (!isSessionAlive(staging)) return [];
 
-	const visibleWindowIndex = getVisibleStagingWindow(hostSession, hostWindowIndex);
-	const viewPane = visibleWindowIndex === undefined ? null : getViewPaneInfo(hostSession, hostWindowIndex);
-	const raw = tryRun(
-		`tmux list-panes -s -t ${tmuxSessionTarget(staging)} -F "#{window_index}\t#{window_name}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}"`,
-	);
-	if (!raw) return [];
+	const panes: ManagedPaneInfo[] = [];
 
-	const panes = raw
-		.split("\n")
-		.map((line) => parseManagedPaneLine(line, staging, hostSession, visibleWindowIndex, viewPane))
-		.filter((pane): pane is ManagedPaneInfo => pane !== null)
-		.sort((a, b) => {
-			if (a.visible !== b.visible) return a.visible ? -1 : 1;
-			return a.windowIndex - b.windowIndex;
-		});
+	// Check view pane (pane index 1 in host window) for @pi_name
+	const viewPane = getViewPaneInfo(hostSession, hostWindowIndex);
+	if (viewPane) {
+		const name = readPaneName(viewPane.paneId);
+		if (name) {
+			panes.push({
+				paneId: viewPane.paneId,
+				ownerSession,
+				title: name,
+				session: hostSession,
+				windowIndex: hostWindowIndex,
+				paneIndex: 1,
+				active: true,
+				visible: true,
+				currentCommand: viewPane.currentCommand,
+				idle: isIdleShellCommand(viewPane.currentCommand) && !paneHasChildren(viewPane.panePid),
+			});
+		}
+	}
+
+	// Scan staging session panes for @pi_name
+	const raw = tryRun(
+		`tmux list-panes -s -t ${tmuxSessionTarget(staging)} -F "#{window_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\t#{${NAME_OPTION}}"`,
+	);
+	if (raw) {
+		for (const line of raw.split("\n")) {
+			const parts = line.split("\t");
+			const windowIndex = Number.parseInt(parts[0] ?? "", 10);
+			const paneId = parts[1] ?? "";
+			const currentCommand = parts[2] ?? "";
+			const panePid = parts[3] ?? "";
+			const name = parts[4] ?? "";
+			if (Number.isNaN(windowIndex) || !paneId || !name) continue;
+
+			panes.push({
+				paneId,
+				ownerSession,
+				title: name,
+				session: staging,
+				windowIndex,
+				paneIndex: 0,
+				active: false,
+				visible: false,
+				currentCommand,
+				idle: isIdleShellCommand(currentCommand) && !paneHasChildren(panePid),
+			});
+		}
+	}
+
+	panes.sort((a, b) => {
+		if (a.visible !== b.visible) return a.visible ? -1 : 1;
+		return a.windowIndex - b.windowIndex;
+	});
 
 	return panes;
 }
@@ -345,37 +373,7 @@ interface PaneQuiescenceOptions {
 	timeoutMs?: number;
 }
 
-function parseManagedPaneLine(
-	line: string,
-	stagingSession: string,
-	hostSession: string,
-	visibleWindowIndex: number | undefined,
-	viewPane: { paneId: string; currentCommand: string; panePid: string } | null,
-): ManagedPaneInfo | null {
-	const parts = line.split("\t");
-	const windowIndex = Number.parseInt(parts[0] ?? "", 10);
-	const title = parts[1] ?? "";
-	const stagingPaneId = parts[2] ?? "";
-	if (Number.isNaN(windowIndex) || !title || !stagingPaneId) return null;
 
-	const visible = visibleWindowIndex === windowIndex && viewPane !== null;
-	const paneId = visible ? viewPane.paneId : stagingPaneId;
-	const currentCommand = visible ? viewPane.currentCommand : (parts[3] ?? "");
-	const panePid = visible ? viewPane.panePid : (parts[4] ?? "");
-
-	return {
-		paneId,
-		ownerSession: stagingSession.replace(/-stg$/, ""),
-		title,
-		session: visible ? hostSession : stagingSession,
-		windowIndex,
-		paneIndex: visible ? 1 : 0,
-		active: visible,
-		visible,
-		currentCommand,
-		idle: isIdleShellCommand(currentCommand) && !paneHasChildren(panePid),
-	};
-}
 
 async function getPaneQuiescenceSignature(paneId: string): Promise<string | null> {
 	const raw = tryRun(`tmux display -p -t ${paneId} "#{pane_current_command}\t#{cursor_x}\t#{cursor_y}"`);
