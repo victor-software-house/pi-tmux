@@ -33,17 +33,17 @@
 - Include metadata: total lines since command start, how many lines were omitted
 - The model can then decide to `peek` with a range if it needs more context
 - `peek` must support `start` and `end` line params for arbitrary range reads via `tmux capture-pane -p -S {start} -E {end}`
-**Tracking output per command:**
-- Total output position = `#{history_size} + #{cursor_y}` (monotonically increasing)
-- Before `send-keys`: snapshot as `cmd_start`, store as `@pi_cmd_start` on the pane
-- On completion: `cmd_end = history_size + cursor_y`, delta = `cmd_end - cmd_start`
-- Capture this command's output: `capture-pane -S -(delta) -E -1`
-- Notification includes last N lines + "X more lines from this command" so the model knows what to peek
+**Rejected: `history_size + cursor_y` tracking** — fragile. Breaks on pane resize (text reflow), terminal clear, alternate screen apps, and `history-limit` overflow.
 
-**Peek with range:**
-- `peek` supports `start`/`end` line params via `capture-pane -p -S {start} -E {end}`
-- Defaults to last N lines of the current command's output (using `@pi_cmd_start`)
-- Note: if output exceeds `history-limit` (50000), oldest lines are silently lost
+**Recommended: `tmux pipe-pane` to log files:**
+- On pane creation: `tmux pipe-pane -t %ID 'cat >> /tmp/pi-tmux/pane-%ID.log'`
+- Before `send-keys`: record byte offset `cmd_start = wc -c < logfile`
+- On completion: read from `cmd_start` with `tail -c +$cmd_start logfile`
+- Immune to resize, clear, alternate screen, scrollback limits
+- Random access via file seek — model can read any range
+- Notification includes last N lines + "X more lines from this command"
+- `peek` reads from the log file with offset/limit params, not `capture-pane`
+- Log files cleaned up on `kill` / session end
 
 ## 5. `attach` returns "View pane already visible" without verifying visibility
 
