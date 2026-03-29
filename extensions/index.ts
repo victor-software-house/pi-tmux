@@ -24,7 +24,58 @@ function toToolResult(result: { ok: boolean; message: string; details?: Record<s
 	};
 }
 
+const OUTSIDE_TMUX_ERROR =
+	"Error: pi-tmux requires tmux CC mode. Run /tmux-promote to move this session into tmux.";
+
+/**
+ * Outside-tmux gate.
+ *
+ * Registers only /tmux-promote and a stub tool that returns a clear error
+ * for every action. Shows a warning notification on session_start.
+ */
+function registerOutsideTmuxGate(pi: ExtensionAPI): void {
+	registerPromoteCommand(pi);
+
+	pi.on("session_start", async (_event, ctx) => {
+		ctx.ui.notify(
+			"pi-tmux requires tmux CC mode. Use /tmux-promote to move this session into tmux.",
+			"warning",
+		);
+	});
+
+	const currentSettings = loadSettings();
+	const flags = getFlags(currentSettings);
+
+	pi.registerTool({
+		name: "tmux",
+		label: "tmux",
+		description: buildDescription(flags),
+		promptSnippet: "pi-tmux is not active. Pi is not running inside tmux CC mode. Use /tmux-promote to move this session into tmux.",
+		parameters: buildParams(flags),
+
+		async execute() {
+			return {
+				content: [{ type: "text" as const, text: OUTSIDE_TMUX_ERROR }],
+				details: {},
+			};
+		},
+
+		renderCall(args, theme) {
+			return new Text(theme.fg("error", "tmux (not in tmux CC mode)"), 0, 0);
+		},
+
+		renderResult(_result, _opts, theme) {
+			return new Text(theme.fg("error", OUTSIDE_TMUX_ERROR), 0, 0);
+		},
+	});
+}
+
 export default function (pi: ExtensionAPI) {
+	if (!process.env.TMUX) {
+		registerOutsideTmuxGate(pi);
+		return;
+	}
+
 	let currentSettings = loadSettings();
 
 	initCommandSettings(currentSettings);
