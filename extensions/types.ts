@@ -40,6 +40,7 @@ export interface TmuxInput {
 	silenceBackoffFactor?: number;
 	silenceBackoffCap?: number;
 	window?: number | string;
+	limit?: number;
 	shellMode?: ShellMode;
 	attach?: boolean;
 	mode?: string;

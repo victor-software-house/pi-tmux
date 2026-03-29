@@ -80,6 +80,7 @@ function mockTmuxInventory(): void {
 		if (cmd.includes("capture-pane -t %42")) return "visible build output\n";
 		if (cmd.includes("capture-pane -t %51")) return "captured logs\n";
 		if (cmd.includes("capture-pane -t %77")) return "captured ci\n";
+		if (cmd.includes("capture-pane")) return "(empty)\n";
 		if (cmd.includes("swap-pane -d -s =5:0.1 -t %51")) return "\n";
 		if (cmd.includes("swap-pane -d -s =5:0.1 -t %77")) return "\n";
 		if (cmd.includes("set-option -p")) return "\n";
@@ -343,6 +344,48 @@ describe("actionPeek()", () => {
 		expect(result.ok).toBe(true);
 		expect(result.message).toContain("captured logs");
 		expect(result.message).toContain("visible build output");
+	});
+
+	test("reports truncation metadata when output exceeds limit", () => {
+		// Generate 100 lines of output
+		const lines = Array.from({ length: 100 }, (_, i) => `line ${i + 1}`);
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
+			if (cmd.includes("has-session -t =test-abc-stg")) return "ok\n";
+			if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index} #{pane_id}\"")) return "0 %1\n1 %42\n";
+			if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) return "0\t%1\tzsh\t1001\n1\t%42\tzsh\t4242\n";
+			if (cmd.includes("display -p -t %42 \"#{@pi_name}\"")) return "build\n";
+			if (cmd.includes("list-panes -s -t =test-abc-stg")) return "";
+			if (cmd.includes("pgrep -P 4242")) throw new Error("no children");
+			if (cmd.includes("capture-pane -t %42")) return lines.join("\n") + "\n";
+			return "\n";
+		});
+
+		// Peek with limit=10 — should report truncation
+		const result = actionPeek("test-abc", "build", defaultHost, 10);
+		expect(result.ok).toBe(true);
+		expect(result.message).toContain("100 lines total, showing last 10");
+		expect(result.message).toContain("line 100");
+		expect(result.message).not.toContain("line 1\n");
+	});
+
+	test("no truncation metadata when output fits within limit", () => {
+		execSyncMock.mockImplementation((_cmd?: string) => {
+			const cmd = _cmd ?? "";
+			if (cmd.includes("has-session -t =test-abc-stg")) return "ok\n";
+			if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index} #{pane_id}\"")) return "0 %1\n1 %42\n";
+			if (cmd.includes("list-panes -t =5:0 -F \"#{pane_index}\t#{pane_id}\t#{pane_current_command}\t#{pane_pid}\"")) return "0\t%1\tzsh\t1001\n1\t%42\tzsh\t4242\n";
+			if (cmd.includes("display -p -t %42 \"#{@pi_name}\"")) return "build\n";
+			if (cmd.includes("list-panes -s -t =test-abc-stg")) return "";
+			if (cmd.includes("pgrep -P 4242")) throw new Error("no children");
+			if (cmd.includes("capture-pane -t %42")) return "short output\n";
+			return "\n";
+		});
+
+		const result = actionPeek("test-abc", "build", defaultHost);
+		expect(result.ok).toBe(true);
+		expect(result.message).toContain("short output");
+		expect(result.message).not.toContain("lines total");
 	});
 });
 

@@ -50,6 +50,11 @@ export function buildParams(flags: FeatureFlags) {
 			}),
 		),
 
+		// peek params
+		limit: Type.Optional(
+			Type.Number({ description: "Maximum number of lines to read for 'peek'. Default 50." }),
+		),
+
 		// attach param
 		mode: Type.Optional(
 			Type.String({ description: "Terminal layout for 'attach': 'split-vertical' (default), 'tab', or 'split-horizontal'." }),

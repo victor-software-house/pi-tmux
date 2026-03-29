@@ -220,7 +220,8 @@ export default function (pi: ExtensionAPI) {
 								: Number.isNaN(Number.parseInt(String(params.window), 10))
 									? String(params.window)
 									: Number.parseInt(String(params.window), 10);
-					return toToolResult(actionPeek(session, target, host));
+					const limit = typeof params.limit === "number" && params.limit > 0 ? params.limit : 50;
+					return toToolResult(actionPeek(session, target, host, limit));
 				}
 
 				case "list":

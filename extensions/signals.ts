@@ -30,12 +30,32 @@ interface CompletionTracker {
 
 const completionTrackers = new Map<string, CompletionTracker>();
 
-function filterPaneOutput(raw: string, maxLines = 20): string {
-	return raw
-		.split("\n")
-		.filter((l) => l.trim())
-		.slice(-maxLines)
-		.join("\n");
+const COMPLETION_SHOW_LINES = 20;
+
+interface CapturedOutput {
+	/** All non-empty lines in the scrollback. */
+	totalLines: number;
+	/** The last N lines shown in the excerpt. */
+	shownLines: number;
+	/** The excerpt text. */
+	excerpt: string;
+}
+
+/**
+ * Capture full scrollback from a pane and return a structured excerpt.
+ * Uses `capture-pane -S -` to get all available scrollback, then takes
+ * the last `maxLines` non-empty lines.
+ */
+function captureFullOutput(paneId: string, maxLines = COMPLETION_SHOW_LINES): CapturedOutput {
+	const raw = tryRun(`tmux capture-pane -t ${paneId} -p -J -S -`) ?? "";
+	const allLines = raw.split("\n").filter((l) => l.trim());
+	const totalLines = allLines.length;
+	const shown = allLines.slice(-maxLines);
+	return {
+		totalLines,
+		shownLines: shown.length,
+		excerpt: shown.join("\n"),
+	};
 }
 
 /**
@@ -82,13 +102,16 @@ export function trackCompletionByPane(
 		clearInterval(timer);
 		completionTrackers.delete(key);
 
-		const raw = tryRun(`tmux capture-pane -t ${paneId} -p -J`) ?? "";
-		const trimmed = filterPaneOutput(raw);
+		const output = captureFullOutput(paneId);
+		const omitted = output.totalLines - output.shownLines;
+		const meta = omitted > 0
+			? ` (${output.totalLines} lines total, showing last ${output.shownLines})`
+			: "";
 
 		pi.sendMessage(
 			{
 				customType: "tmux-completion",
-				content: `tmux "${label}" finished.\n\n\`\`\`\n${trimmed}\n\`\`\``,
+				content: `tmux "${label}" finished.${meta}\n\n\`\`\`\n${output.excerpt}\n\`\`\``,
 				display: true,
 			},
 			{ triggerTurn, deliverAs },

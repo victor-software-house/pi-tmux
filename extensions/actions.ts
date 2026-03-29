@@ -51,6 +51,24 @@ function hasActiveSession(session: string): boolean {
 	return isSessionAlive(commandSession(session));
 }
 
+/**
+ * Capture scrollback from a pane, returning an excerpt and truncation metadata.
+ * Uses `capture-pane -S -` for full scrollback, then takes the last `limit` lines.
+ */
+function capturePaneExcerpt(paneId: string, limit: number): { excerpt: string; meta: string } {
+	const raw = tryRun(`tmux capture-pane -t ${paneId} -p -S -`) ?? "";
+	const allLines = raw.split("\n");
+	// Trim trailing empty lines for accurate count
+	while (allLines.length > 0 && (allLines[allLines.length - 1] ?? "").trim() === "") allLines.pop();
+	const totalLines = allLines.length;
+	if (totalLines === 0) return { excerpt: "(no output)", meta: "" };
+	const shown = allLines.slice(-limit);
+	const omitted = totalLines - shown.length;
+	const excerpt = shown.join("\n");
+	const meta = omitted > 0 ? `(${totalLines} lines total, showing last ${shown.length})` : "";
+	return { excerpt, meta };
+}
+
 // ---------------------------------------------------------------------------
 // Result types
 // ---------------------------------------------------------------------------
@@ -246,7 +264,7 @@ export function actionClose(session: string, target: number | string, host: Host
 // peek — capture recent output
 // ---------------------------------------------------------------------------
 
-export function actionPeek(session: string, target: number | string | "all", host: HostTarget): ActionResult {
+export function actionPeek(session: string, target: number | string | "all", host: HostTarget, limit = 50): ActionResult {
 	if (!hasActiveSession(session)) return { ok: false, message: `No active session '${session}'.` };
 
 	if (target === "all") {
@@ -254,8 +272,9 @@ export function actionPeek(session: string, target: number | string | "all", hos
 		if (panes.length === 0) return { ok: true, message: "(no managed panes)", details: { session } };
 		const output = panes
 			.map((pane) => {
-				const paneOutput = tryRun(`tmux capture-pane -t ${pane.paneId} -p -S -50`) ?? "(no output)";
-				return `-- pane ${pane.paneId}: ${pane.title} (${pane.visible ? "visible" : "offscreen"}, ${pane.idle ? "idle" : "running"}) --\n${paneOutput}`;
+				const { excerpt, meta } = capturePaneExcerpt(pane.paneId, limit);
+				const status = `${pane.visible ? "visible" : "offscreen"}, ${pane.idle ? "idle" : "running"}`;
+				return `-- pane ${pane.paneId}: ${pane.title} (${status})${meta} --\n${excerpt}`;
 			})
 			.join("\n\n");
 		return { ok: true, message: output, details: { session } };
@@ -263,7 +282,8 @@ export function actionPeek(session: string, target: number | string | "all", hos
 
 	const pane = resolveManagedPane(session, target, host.session, host.windowIndex);
 	if (!pane) return { ok: false, message: `No pane '${target}'.` };
-	const output = tryRun(`tmux capture-pane -t ${pane.paneId} -p -S -50`) ?? "(no output)";
+	const { excerpt, meta } = capturePaneExcerpt(pane.paneId, limit);
+	const output = meta ? `${meta}\n${excerpt}` : excerpt;
 	return { ok: true, message: output, details: { session, paneId: pane.paneId, window: pane.windowIndex } };
 }
 
