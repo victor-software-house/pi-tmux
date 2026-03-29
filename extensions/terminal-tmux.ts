@@ -1,12 +1,12 @@
 /**
- * Terminal attach — tmux-native (CC mode) implementation.
+ * Terminal attach — tmux CC mode implementation.
  *
  * In CC mode, tmux split-window / new-window create visible iTerm2
- * panes and tabs. The view pane (pane 1 of window 0) is created by
- * ensureViewPane() in session.ts via split-window.
+ * panes and tabs. The view pane (pane 1 of the host window) is created
+ * by ensureViewPane() in session.ts via split-window.
  *
- * This module handles the openTerminal / hasAttachedPane / close contract
- * used by terminal.ts dispatcher when process.env.TMUX is set.
+ * Exports: hasAttachedPane, closeAttachedSessions, openTerminal,
+ * checkTmuxEnvironment.
  */
 import type { AttachLayout } from "./types.js";
 import { tryRun, tmuxSessionTarget } from "./session.js";

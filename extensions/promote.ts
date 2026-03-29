@@ -1,17 +1,35 @@
 /**
  * /tmux-promote — move pi session from bare terminal into tmux CC mode.
- * Legacy command: only registered when pi is NOT already inside tmux.
+ * Only registered when pi is NOT already inside tmux.
  * Uses it2api for iTerm2 integration (create-tab, get-prompt, send-text).
  */
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { resolveProjectRoot, deriveSessionName, tmuxSessionTarget } from "./session.js";
+import { resolveProjectRoot, tryRun, tmuxSessionTarget } from "./session.js";
 import { getOrCreateBinding } from "./state.js";
+
+const IT2API = "/Applications/iTerm.app/Contents/Resources/utilities/it2api";
+
+let _it2apiAvailable: boolean | null = null;
+
+function isIt2apiAvailable(): boolean {
+	if (_it2apiAvailable === null) {
+		_it2apiAvailable = tryRun(`${IT2API} list-sessions 2>/dev/null`) !== null;
+	}
+	return _it2apiAvailable;
+}
+
+function getActiveiTermSession(): string | null {
+	if (!isIt2apiAvailable()) return null;
+	const raw = tryRun(`${IT2API} show-focus 2>/dev/null`);
+	if (!raw) return null;
+	const match = raw.match(/id=([0-9A-F-]{36})/);
+	return match?.[1] ?? null;
+}
+
 export function registerPromoteCommand(pi: ExtensionAPI): void {
 	if (process.env.TMUX) return;
 
-	// Lazy import — only loaded outside tmux
-	const { getActiveiTermSession } = require("./terminal-legacy.js");
-	const piSessionId = getActiveiTermSession() as string | null;
+	const piSessionId = getActiveiTermSession();
 
 	pi.registerCommand("tmux-promote", {
 		description: "Re-launch this pi session inside tmux for native scrolling and splits",

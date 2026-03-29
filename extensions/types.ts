@@ -45,13 +45,6 @@ export interface TmuxInput {
 	mode?: string;
 }
 
-export interface AttachOptions {
-	session: string;
-	mode?: AttachLayout;
-	tmuxWindow?: number;
-	/** @deprecated Legacy only — piSessionId for it2api outside tmux */
-	piSessionId?: string | null;
-}
 
 export interface WindowInfo {
 	index: number;
