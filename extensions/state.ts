@@ -142,7 +142,7 @@ export function getOrCreateBinding(
 	}
 
 	// Validate live tmux session and recreate if missing
-	const recreated = ensureTmuxSessionExists(state.tmuxSessionName, state.createdFromCwd);
+	const recreated = ensureTmuxSessionExists(state.tmuxSessionName);
 
 	return {
 		tmuxSessionName: state.tmuxSessionName,
@@ -154,7 +154,7 @@ export function getOrCreateBinding(
 /**
  * Ensure the primary tmux session exists. Returns true if it was recreated.
  */
-function ensureTmuxSessionExists(name: string, fallbackCwd: string): boolean {
+function ensureTmuxSessionExists(name: string): boolean {
 	if (isSessionAlive(name)) return false;
 	// Session is missing — recreate it.
 	// actionRun already handles session creation in legacy mode, but for
