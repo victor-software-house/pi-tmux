@@ -22,7 +22,20 @@
 
 **Direction:** `peek` in tmux mode should resolve the target against staging window names (`tmux list-windows -t stg`), not managed pane metadata. Window names are set by `rename-window` and survive swaps.
 
-## 4. `attach` returns "View pane already visible" without verifying visibility
+## 4. Completion notifications truncate output to 20 lines
+
+**Symptom:** Model receives only the last 20 non-empty lines of command output on completion. Cannot debug failures from long commands.
+
+**Root cause:** `filterPaneOutput()` in `signals.ts` slices to 20 lines. `capture-pane -S -50` only grabs 50 lines from scrollback.
+
+**Direction:**
+- Increase capture to `-S -500` or full scrollback (`-S -`)
+- Increase `filterPaneOutput` default to at least 100 lines
+- Add tool params to control output: `captureLines` (how many lines to return), `outputFile` (save full capture to file)
+- `peek` should also support a lines param and default to more than 50
+- No output should be silently lost — if truncated, save full output to a temp file and reference it in the response
+
+## 5. `attach` returns "View pane already visible" without verifying visibility
 
 **Symptom:** `attach` says visible but user may not see a split if the view pane was killed externally.
 
