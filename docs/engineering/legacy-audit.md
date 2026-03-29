@@ -1,4 +1,4 @@
-# Legacy Code Audit
+# LEGACY-GATE: Legacy Code Audit
 
 ## Status: non-tmux mode is deprecated, tmux CC is the only supported path
 
@@ -25,19 +25,19 @@ The dispatcher loads the right impl at startup, but tmux-mode actions bypass the
 Every action has an `if (process.env.TMUX) { ... }` tmux branch followed by legacy code. The legacy code uses the window-per-command model (one tmux window per run, no staging, no swap-pane). Approximately 100 lines across all actions.
 
 ### `actionClear` fallthrough
-The tmux branch in `actionClear` queries `listManagedPanes` (broken due to PANE-META). If it returns empty, execution falls through to the legacy `list-windows` + `pgrep` path, which operates on the wrong session in tmux mode.
+The tmux branch in `actionClear` queries `listManagedPanes` (broken due to PANE-META). If it returns empty, execution falls through to the legacy `list-windows` + `pgrep` path, which operates on the wrong session in tmux mode. Fixing PANE-META will fix the managed pane query, but the fallthrough path should be deleted regardless.
 
 ### `source-file ~/.config/pi-tmux/tmux.conf`
 Only called in the legacy `actionRun` path when creating a new session. In tmux mode, the staging session inherits global config. The conf file currently only sets `mouse on` which is already global.
 
 ## Removal plan
 
-### Phase 1: Gate (roadmap item "Disable non-tmux mode")
+### LEGACY-GATE phase 1: Gate
 - On session_start: if `!process.env.TMUX`, show warning widget, register only `/tmux-promote`, return error from tool
 - Follows the ACM pattern from pi-context
 - No code deletion yet — just a runtime gate
 
-### Phase 2: Remove legacy code entirely
+### LEGACY-GATE phase 2: Remove legacy code entirely
 - Delete all `else` branches after `if (process.env.TMUX)` in `actions.ts`
 - Remove `process.env.TMUX` checks entirely — tmux is the only path
 - Delete `terminal.ts` dispatcher
@@ -47,7 +47,7 @@ Only called in the legacy `actionRun` path when creating a new session. In tmux 
 - Remove `attachToSession()` — dead code
 - Remove `AttachOptions` and `piSessionId` from `types.ts` if no longer referenced
 
-### Phase 3: Restructure
+### LEGACY-GATE phase 3: Restructure
 - `actions.ts` becomes linear — no branching, every action assumes tmux
 - `hostSession` plumbing simplifies if promote always creates a named session
 - Consider renaming the host session on promote to the derived name, eliminating the host/command session split entirely
