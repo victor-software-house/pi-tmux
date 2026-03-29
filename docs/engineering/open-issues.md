@@ -33,7 +33,10 @@
 - Include metadata: total lines since command start, how many lines were omitted
 - The model can then decide to `peek` with a range if it needs more context
 - `peek` must support `start` and `end` line params for arbitrary range reads via `tmux capture-pane -p -S {start} -E {end}`
-- Use `tmux display-message -t %ID -p '#{history_size}'` to report total lines available
+- Before `send-keys`, snapshot `#{history_size}` and store as `@pi_cmd_start` on the pane
+- On completion/peek, capture from `@pi_cmd_start` to current: `capture-pane -S $start`
+- Use `#{history_size}` to report total lines and how many were omitted from the notification
+- `peek` supports `start`/`end` line params via `capture-pane -p -S {start} -E {end}`
 - Note: if output exceeds `history-limit` (50000), oldest lines are silently lost
 
 ## 5. `attach` returns "View pane already visible" without verifying visibility
