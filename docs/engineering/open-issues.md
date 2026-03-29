@@ -86,6 +86,27 @@ This architecture works at the tmux level: commands execute, output appears in t
 
 ---
 
+## HOST-PLUMBING: hostWindowIndex threading is fragile and error-prone
+
+**What happens:** Every action call site in `index.ts` and `command.ts` must manually pass `hostSession` and `hostWindowIndex` as positional arguments. Missing one argument silently falls back to the default (`0`), which targets the wrong tmux window. This has caused multiple rounds of fixes where some call sites were updated and others were missed.
+
+**Why this is a problem:** The pattern of threading optional positional parameters through 6+ layers of function calls is inherently fragile. Adding a new parameter requires touching every call site, and TypeScript does not flag a missing optional argument. Each missed call site silently produces wrong behavior that only manifests during live tmux CC testing.
+
+**Root cause:** The host identity (session name + window index) is resolved once in `state.ts` but then threaded as individual arguments through `index.ts` -> `actions.ts` -> `session.ts` -> `terminal-tmux.ts`. Every function signature grew `hostSession?: string, hostWindowIndex = 0` independently, with no compile-time enforcement that all parameters are provided together.
+
+**Fix direction:** Replace the positional argument threading with a single `HostTarget` object:
+```typescript
+interface HostTarget {
+  session: string;
+  windowIndex: number;
+}
+```
+Pass this object through all tmux-mode actions, session helpers, and terminal functions. A single required parameter is harder to forget than two optional positional ones. This should be done during `LEGACY-GATE` phases 2-3 when the legacy branches are removed and the action signatures are simplified.
+
+**Verification:** After fix, `grep -r 'hostSession.*hostWindowIndex' extensions/` should return zero matches — all call sites should use the `HostTarget` object instead.
+
+---
+
 ## HOST-MISMATCH: tmux view pane exists in a different iTerm2 tmux window than the visible Pi tab
 
 **What happens:** A `run` call succeeds and tmux shows a live view pane in the detected host session, but the operator sees no new split in the currently active Pi tab.
