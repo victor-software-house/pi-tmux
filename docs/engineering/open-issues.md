@@ -31,11 +31,17 @@ Fixed by detecting Pi's host session and window index from `TMUX_PANE` at startu
 
 Fixed by querying `tmux list-panes` for pane index `1` in the host window before reporting attached.
 
-### LEGACY-GATE phase 1 (fixed)
+### LEGACY-GATE (fixed — all phases)
 
-The extension pretended to work outside tmux. Legacy code paths for iTerm2 Python API, AppleScript, and terminal-specific CLI tools were untested and added branching complexity.
+The extension pretended to work outside tmux. Legacy code paths for iTerm2 Python API, AppleScript, and terminal-specific CLI tools were untested and added branching complexity to every action function.
 
-Fixed by gating the entire extension behind `process.env.TMUX` in `index.ts`. Outside tmux: only `/tmux-promote` is registered, `session_start` shows a warning, and the tool returns a clear error for every action. Inside tmux: no behavior change.
+Fixed in three phases:
+1. Phase 1: gated the extension behind `process.env.TMUX` in `index.ts`. Outside tmux: only `/tmux-promote`, warning on session_start, tool returns error.
+2. Phase 2: removed all `if (process.env.TMUX)` branches from `actions.ts`. Introduced `HostTarget` object replacing positional `hostSession`/`hostWindowIndex` args.
+3. Phase 2 continued: deleted `terminal.ts` dispatcher, `terminal-legacy.ts`, dead signals code. Moved `getActiveiTermSession` into `promote.ts`.
+
+Deleted files: `terminal.ts`, `terminal-legacy.ts`, `terminal-legacy.test.ts`.
+Deleted exports: `trackCompletion`, `sendCommand`, `createWindowWithCommand`, `startCommandInFirstWindow`, `checkSilence`, `AttachOptions`.
 
 ---
 
@@ -64,22 +70,18 @@ This eliminates:
 
 ---
 
-### HOST-PLUMBING: host identity threading is fragile
+### HOST-PLUMBING (fixed)
 
-**Status:** open, tracked for LEGACY-GATE phases 2-3
+Every action function took `hostSession?: string, hostWindowIndex = 0` as separate optional positional arguments. Missing one silently defaulted to `0` and targeted the wrong tmux window.
 
-**What happens:** Every action function takes `hostSession?: string, hostWindowIndex = 0` as separate optional positional arguments. Missing one silently defaults to `0` and targets the wrong tmux window. This has caused multiple rounds of fixes where some call sites were updated and others were missed.
-
-**Why this matters:** Adding or changing a parameter requires touching every call site. TypeScript does not flag a missing optional argument. Bugs only show up during live tmux CC testing.
-
-**Fix direction:** Replace with a single required `HostTarget` object:
+Fixed by replacing with a single required `HostTarget` object:
 ```typescript
 interface HostTarget {
   session: string;
   windowIndex: number;
 }
 ```
-One object, one parameter, impossible to partially forget. Do this during LEGACY-GATE phases 2-3 when legacy branches are removed and action signatures are simplified.
+One object, one parameter, impossible to partially forget. Done as part of LEGACY-GATE phase 2.
 
 ---
 

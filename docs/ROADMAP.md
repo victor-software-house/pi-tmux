@@ -40,14 +40,13 @@ Use exact tmux names everywhere. No metaphors, no vague terms.
 ### PANE-META: Replace pane metadata with staging window queries
 The `@pi_managed` / `@pi_title` pane metadata system is broken by `swap-pane`. This blocks `list`, `peek` by name, `close`, `focus`, `resume`, and `mute`. The staging session's window names are the correct source of truth. See `docs/engineering/open-issues.md` PANE-META for full details and verification criteria.
 
-### LEGACY-GATE: Disable non-tmux mode, gate behind /tmux-promote
-Non-tmux (legacy) code paths add complexity and are untested. Three-phase plan:
-1. ~~Gate: runtime check on session_start, widget warning, tool returns error outside tmux~~ (done)
-2. Remove: delete legacy branches from actions.ts, delete terminal.ts dispatcher
-3. Simplify: direct imports, consider renaming host session on promote
-See `docs/engineering/legacy-audit.md` for full audit of what's dead, what survives, and what actively hurts the tmux path.
+### ~~LEGACY-GATE: Disable non-tmux mode, gate behind /tmux-promote~~ (done)
+All three phases complete:
+1. ~~Gate: runtime check on session_start, widget warning, tool returns error outside tmux~~
+2. ~~Remove: delete legacy branches from actions.ts, delete terminal.ts dispatcher~~
+3. ~~Simplify: HostTarget object replaces positional host args, dead code removed~~
 
-Phase 1 is done. Outside tmux: only `/tmux-promote` is registered, `session_start` warns, tool returns error. Inside tmux: no change.
+Remaining from the original plan: `terminal-tmux.ts` has not been renamed to `terminal.ts` — this would break test imports and is deferred.
 
 ## High priority
 
