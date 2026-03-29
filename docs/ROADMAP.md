@@ -8,10 +8,11 @@
 4. **LEGACY-GATE** (phases 2-3) — Delete legacy branches from `actions.ts`, delete `terminal.ts` dispatcher, delete `terminal-legacy.ts`, rename `terminal-tmux.ts` to `terminal.ts`. Easier to do after PANE-META because `actions.ts` will already be heavily edited.
 5. **OUTPUT-TRACK** — Implement `tmux pipe-pane` logging and output metadata in completion notifications. Depends on PANE-META because `peek` must resolve panes by name before ranged output reads are useful.
 6. **COMPLETE-BUILTIN** — Fix premature completion for shell builtins (`read`, `wait`, etc.). Independent of other items. Lower urgency because most commands the model runs are external processes, not interactive builtins.
-7. **FOCUS-LEAK** — Cosmetic. Fix after the swap-pane flow is stable.
-8. **CTX-SIGNAL, SCHEMA-COMPAT, MSG-DELIVERY** — Integrations with Pi runtime APIs added in v0.63-0.64. Independent of each other and of the above items.
+7. **HOST-MISMATCH** — Fix host-session to operator-visible-tab mapping before declaring the tmux CC path verified. The split currently appears in a real tmux host session, but not necessarily in the iTerm2 tab Pi is running in. Use the deterministic `TMUX_PANE` + `tmux capture-pane` + `it2api get-buffer` matching check from `docs/engineering/open-issues.md` rather than relying on focus alone.
+8. **FOCUS-LEAK** — Cosmetic. Fix after the swap-pane flow is stable.
+9. **CTX-SIGNAL, SCHEMA-COMPAT, MSG-DELIVERY** — Integrations with Pi runtime APIs added in v0.63-0.64. Independent of each other and of the above items.
 
-Items 1-2 are prerequisites for everything else. Items 3-5 have ordering dependencies (noted above). Items 6-8 are independent of each other.
+Items 1-2 are prerequisites for everything else. Items 3-5 have ordering dependencies (noted above). Item 7 blocks final confidence in live tmux CC verification. Items 6, 8, and 9 are otherwise independent.
 
 ---
 
@@ -42,6 +43,9 @@ Check for jixiuf/tmux fork (`kitty-keys` option) and warn if not present. Surfac
 `attach` trusts an in-memory flag without verifying the pane exists. See `docs/engineering/open-issues.md` ATTACH-VERIFY.
 
 ## Medium priority
+
+### HOST-MISMATCH: Map Pi's tmux host session to the tab Pi is actually running in
+The current host-session detection uses tmux's session name, but live verification showed that this can point at a tmux integration context different from the visible iTerm2 tab containing Pi. Before running visibility-sensitive validation, identify Pi's own tab deterministically by matching `TMUX_PANE` scrollback from `tmux capture-pane` against candidate buffers from `it2api get-buffer`. See `docs/engineering/open-issues.md` HOST-MISMATCH.
 
 ### CTX-SIGNAL: Wire ctx.signal for cancellation support
 Pi 0.63.2 added `ctx.signal` to extension contexts. Currently `actionRun` ignores the signal parameter. Wire it to kill the staging pane when the user cancels a tool call mid-execution.
