@@ -4,6 +4,10 @@
  * Source of truth for the tmux session identity across tool calls.
  * Replaces cwd-based derivation so session targeting survives resume,
  * cwd drift, fork, and tree navigation.
+ *
+ * Static fields (tmuxSessionName, createdFromCwd) are persisted.
+ * Dynamic fields (hostSessionName) are detected once per pi session
+ * and cached in-memory — never persisted (they go stale across sessions).
  */
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 import { deriveSessionName, deriveStagingName, isSessionAlive, resolveProjectRoot, tryRun } from "./session.js";
@@ -12,7 +16,7 @@ import { deriveSessionName, deriveStagingName, isSessionAlive, resolveProjectRoo
 type SessionReader = ExtensionContext["sessionManager"];
 
 // ---------------------------------------------------------------------------
-// Schema
+// Schema — persisted fields only
 // ---------------------------------------------------------------------------
 
 const CUSTOM_TYPE = "pi-tmux-state";
@@ -20,19 +24,19 @@ const CUSTOM_TYPE = "pi-tmux-state";
 export interface TmuxSessionStateV1 {
 	version: 1;
 	tmuxSessionName: string;
-	/** When running inside tmux CC mode, the name of the CC-attached host session
-	 *  (e.g. "0"). View panes live here. Null when not in tmux mode. */
-	hostSessionName: string | null;
 	/** Informational only — the cwd that seeded the initial name. Not used for routing. */
 	createdFromCwd: string;
 	updatedAt: number;
 }
 
 // ---------------------------------------------------------------------------
-// In-memory cache (disposable — rebuilt from session entries)
+// In-memory cache (disposable — rebuilt from session entries + live detection)
 // ---------------------------------------------------------------------------
 
 let cached: TmuxSessionStateV1 | null = null;
+
+/** Host session name, detected once and cached for the lifetime of this pi session. */
+let cachedHostSession: string | null | undefined = undefined; // undefined = not yet detected
 
 /** Read the cached state. Returns null if not yet loaded. */
 export function getCachedState(): TmuxSessionStateV1 | null {
@@ -42,6 +46,26 @@ export function getCachedState(): TmuxSessionStateV1 | null {
 /** Clear the in-memory cache (e.g. on session_shutdown). */
 export function clearCache(): void {
 	cached = null;
+	cachedHostSession = undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Host session detection — once per pi session
+// ---------------------------------------------------------------------------
+
+/**
+ * Detect the current tmux host session name.
+ * Cached after first call — the CC session name is stable within a pi session.
+ */
+function getHostSession(): string | null {
+	if (cachedHostSession !== undefined) return cachedHostSession;
+	if (!process.env.TMUX) {
+		cachedHostSession = null;
+		return null;
+	}
+	const raw = tryRun("tmux display-message -p '#{session_name}'");
+	cachedHostSession = raw?.trim() || null;
+	return cachedHostSession;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,16 +103,6 @@ function isValidState(data: unknown): data is TmuxSessionStateV1 {
 	);
 }
 
-/**
- * Detect the current tmux host session name.
- * Returns the session name if running inside tmux, null otherwise.
- */
-function detectHostSession(): string | null {
-	if (!process.env.TMUX) return null;
-	const raw = tryRun("tmux display-message -p '#{session_name}'");
-	return raw?.trim() || null;
-}
-
 /** Persist state as a new session entry. */
 function saveState(pi: ExtensionAPI, state: TmuxSessionStateV1): void {
 	pi.appendEntry<TmuxSessionStateV1>(CUSTOM_TYPE, state);
@@ -101,10 +115,13 @@ function saveState(pi: ExtensionAPI, state: TmuxSessionStateV1): void {
 
 /**
  * Rehydrate the in-memory cache from the session history.
+ * Also primes the host session cache if not yet detected.
  * Safe to call multiple times — idempotent.
  */
 export function rehydrate(sessionManager: SessionReader): void {
 	cached = loadPersistedState(sessionManager);
+	// Prime host detection on first rehydrate
+	getHostSession();
 }
 
 // ---------------------------------------------------------------------------
@@ -128,7 +145,8 @@ export interface ResolvedBinding {
  * 2. Persisted session entry
  * 3. Initialize from cwd (first use only)
  *
- * If the tmux session is missing, it is recreated automatically.
+ * Host session is always resolved from the cached live detection,
+ * never from persisted state.
  */
 export function getOrCreateBinding(
 	pi: ExtensionAPI,
@@ -144,25 +162,23 @@ export function getOrCreateBinding(
 		if (state) cached = state;
 	}
 
-	// 3. Initialize fresh
+	// 3. Initialize fresh — full initialization of all fields
 	if (!state) {
 		const root = resolveProjectRoot(fallbackCwd);
 		state = {
 			version: 1,
 			tmuxSessionName: deriveSessionName(root),
-			hostSessionName: detectHostSession(),
 			createdFromCwd: root,
 			updatedAt: Date.now(),
 		};
 		saveState(pi, state);
 	}
 
-	// Validate live tmux session and recreate if missing
+	// Validate live tmux session
 	const recreated = ensureTmuxSessionExists(state.tmuxSessionName);
 
-	// Always detect host session live — the CC session name changes between
-	// pi sessions (e.g. "0", "2") and persisted values go stale.
-	const host = detectHostSession() ?? state.tmuxSessionName;
+	// Host is always from live cache, never from persisted state
+	const host = getHostSession() ?? state.tmuxSessionName;
 	return {
 		tmuxSessionName: state.tmuxSessionName,
 		stagingSessionName: deriveStagingName(state.tmuxSessionName),
@@ -176,12 +192,7 @@ export function getOrCreateBinding(
  */
 function ensureTmuxSessionExists(name: string): boolean {
 	if (isSessionAlive(name)) return false;
-	// Session is missing — recreate it.
-	// actionRun already handles session creation in legacy mode, but for
-	// peek/list/focus/attach we need the session to exist.
-	// We do NOT create it here in the general case — actionRun handles creation
-	// with proper window setup. Instead, we just report that it is missing and
-	// let callers decide. For read-only actions this means "no session yet".
+	// Session is missing — let callers handle creation.
 	return false;
 }
 
@@ -205,7 +216,6 @@ export function notifySessionCreated(
 	const state: TmuxSessionStateV1 = {
 		version: 1,
 		tmuxSessionName,
-		hostSessionName: detectHostSession(),
 		createdFromCwd: cwd,
 		updatedAt: Date.now(),
 	};
