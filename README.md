@@ -59,6 +59,81 @@ The notification includes a peek of the window output so the agent can decide wh
 - `/tmux` command accepts mode argument with autocomplete
 - iTerm2 AppleScript uses `split vertically` / `split horizontally` on `current session` for split modes
 
+## Recommended tmux setup
+
+Pi uses modified key sequences (Ctrl+Shift+P, Ctrl+Enter, etc.) that stock tmux cannot forward correctly. The recommended setup uses the [jixiuf/tmux](https://github.com/jixiuf/tmux) fork, which adds the Kitty keyboard protocol.
+
+### Install the tmux fork
+
+```bash
+# Build from source (macOS)
+brew install libevent ncurses utf8proc autoconf automake pkg-config
+git clone https://github.com/jixiuf/tmux.git /tmp/jixiuf-tmux
+cd /tmp/jixiuf-tmux
+sh autogen.sh
+PKG_CONFIG_PATH="/opt/homebrew/opt/ncurses/lib/pkgconfig:/opt/homebrew/lib/pkgconfig" \
+  LDFLAGS="-L/opt/homebrew/lib" \
+  ./configure --prefix=/usr/local --enable-utf8proc
+make -j$(sysctl -n hw.logicalcpu)
+brew unlink tmux
+sudo cp tmux /usr/local/bin/tmux
+```
+
+Verify: `tmux -V` should show `next-3.7`.
+
+### ~/.tmux.conf
+
+```tmux
+# Kitty keyboard protocol (jixiuf/tmux fork)
+set -s kitty-keys on
+set -as terminal-features '*:kitkeys'
+
+# Extended keys fallback
+set -g extended-keys on
+set -g extended-keys-format csi-u
+set -as terminal-features 'xterm*:extkeys'
+set -as terminal-features 'tmux*:extkeys'
+
+# Mouse
+set -g mouse on
+
+# Truecolor and undercurl
+set -g default-terminal "tmux-256color"
+set -as terminal-features ',xterm-256color:RGB'
+set -as terminal-features ',xterm-256color:usstyle'
+
+# Fast escape
+set -g escape-time 10
+
+# Focus events
+set -g focus-events on
+
+# Clipboard via OSC 52
+set -g set-clipboard on
+
+# Allow passthrough (shell integration, imgcat)
+set -g allow-passthrough on
+
+# Scrollback
+set -g history-limit 50000
+
+# Renumber windows on close
+set -g renumber-windows on
+```
+
+### iTerm2 settings
+
+If using iTerm2 with `tmux -CC` integration:
+
+1. Create a profile named `tmux` and configure it (colors, font, etc.)
+2. Enable **Settings > General > tmux > Use `tmux` profile rather than profile of connecting session**
+
+### Why not stock tmux?
+
+Stock tmux supports `extended-keys` with CSI-u encoding, but `extended-keys always` breaks Ctrl-C in regular shells. The `on` mode (apps opt-in) is safe but pi does not explicitly request extended keys, so modified keys are not forwarded.
+
+The jixiuf fork adds `kitty-keys`, which handles the full Kitty keyboard protocol and correctly forwards Ctrl+Shift+P, Ctrl+Enter, and other modified keys without breaking Ctrl-C.
+
 ## Credits
 
 Original: [@romansix/pi-tmux](https://github.com/indigoviolet/pi-tmux) by [indigoviolet](https://github.com/indigoviolet).
