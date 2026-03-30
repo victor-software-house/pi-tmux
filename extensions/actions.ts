@@ -295,9 +295,11 @@ export function actionList(session: string, host: HostTarget): ActionResult {
 	if (!hasActiveSession(session)) return { ok: false, message: `No active session '${session}'.` };
 
 	const panes = listManagedPanes(session, host.session, host.windowIndex);
+	const attached = hasAttachedPane(host.session, host.windowIndex);
 	const formatted = panes.map((pane) => `  :${pane.windowIndex}  ${pane.title}  (${pane.visible ? "visible" : "offscreen"}, ${pane.idle ? "idle" : "running"}, pane ${pane.paneId})`);
-	const header = `Session ${session} — ${panes.length} managed pane(s) (attached)`;
-	return { ok: true, message: `${header}\n${formatted.join("\n")}`, details: { session, panes, attached: true } };
+	const attachState = attached ? "attached" : "detached";
+	const header = `Session ${session} — ${panes.length} managed pane(s) (${attachState})`;
+	return { ok: true, message: `${header}\n${formatted.join("\n")}`, details: { session, panes, attached } };
 }
 
 // ---------------------------------------------------------------------------

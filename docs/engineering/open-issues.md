@@ -97,11 +97,17 @@ Shell builtins like `read` and `wait` caused premature completion because `pane_
 
 Fixed by requiring `seenNonShell` to be true before firing completion. The tracker only fires when it observes a non-shell `pane_current_command` (external process) and then sees it return to the shell. For builtins, `silenceTimeout` handles the "waiting for input" case. Added a 5-minute max poll duration safety net.
 
----
+### LIST-ATTACHED (fixed)
 
-## Active issues
+`tmux list` reported `(attached)` in the header even when the host view pane was gone.
 
-(none currently — all issues fixed or closed)
+Fixed by making `actionList()` call `hasAttachedPane(host.session, host.windowIndex)` and thread the real boolean through both the header text and `details.attached`.
+
+**Verification sequence:**
+1. create at least one pane with `tmux run`
+2. close the visible pane with `tmux close`
+3. run `tmux list` and confirm it reports `(detached)` when no host view pane exists
+4. run `tmux attach` and confirm it reports `Already attached.` only when the split is actually present
 
 ---
 

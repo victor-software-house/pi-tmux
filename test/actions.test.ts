@@ -398,12 +398,15 @@ describe("actionList()", () => {
 		expect(result.ok).toBe(false);
 	});
 
-	test("reports managed panes with stable names from @pi_name", () => {
+	test("reports attached state when the host view pane exists", () => {
 		mockTmuxInventory();
+		(hasAttachedPane as ReturnType<typeof mock>).mockReturnValueOnce(true);
 
 		const result = actionList("test-abc", defaultHost);
 		expect(result.ok).toBe(true);
-		expect(result.message).toContain("managed pane(s)");
+		if (!result.ok) throw new Error("expected ok result");
+		expect(result.message).toContain("managed pane(s) (attached)");
+		expect(result.details?.attached).toBe(true);
 		// build is visible (from view pane @pi_name), logs and ci from staging
 		expect(result.message).toContain("build");
 		expect(result.message).toContain("(visible, idle, pane %42)");
@@ -411,6 +414,17 @@ describe("actionList()", () => {
 		expect(result.message).toContain("(offscreen, running, pane %51)");
 		expect(result.message).toContain("ci");
 		expect(result.message).toContain("(offscreen, idle, pane %77)");
+	});
+
+	test("reports detached state when the host view pane is gone", () => {
+		mockTmuxInventory();
+		(hasAttachedPane as ReturnType<typeof mock>).mockReturnValueOnce(false);
+
+		const result = actionList("test-abc", defaultHost);
+		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error("expected ok result");
+		expect(result.message).toContain("managed pane(s) (detached)");
+		expect(result.details?.attached).toBe(false);
 	});
 });
 
