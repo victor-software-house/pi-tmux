@@ -170,17 +170,11 @@ export function clearSilenceForWindow(session: string, windowIndex: number): boo
 
 /**
  * Send a command to an existing pane via send-keys.
- *
- * Prepends a focus-reporting disable sequence so that iTerm2 CC
- * stops sending ^[[I/^[[O to the pane.  This must happen after
- * the shell has finished initialization (which re-enables focus
- * reporting), so it is sent as an inline prefix to the command.
  */
 export function sendCommandToPane(paneTarget: string, command: string): void {
 	tryRun(`tmux send-keys -t ${paneTarget} -X cancel 2>/dev/null`);
 	tryRun(`tmux send-keys -t ${paneTarget} C-u`);
-	const wrapped = `printf '\\e[?1004l'; ${command}`;
-	run(`tmux send-keys -t ${paneTarget} "${tmuxEscape(wrapped)}" C-m`);
+	run(`tmux send-keys -t ${paneTarget} "${tmuxEscape(command)}" C-m`);
 }
 
 /** Send C-c to interrupt a running command in a pane. */

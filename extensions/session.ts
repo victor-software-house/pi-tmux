@@ -155,6 +155,24 @@ export function createStagingWindow(staging: string, cwd: string, name: string):
 export function swapViewPane(hostSession: string, paneId: string, hostWindowIndex = 0): void {
 	const viewTarget = `${tmuxSessionTarget(hostSession)}:${hostWindowIndex}.1`;
 	run(`tmux swap-pane -d -s ${viewTarget} -t ${paneId}`);
+	disableFocusReporting(paneId);
+}
+
+/**
+ * Disable focus event reporting for a pane.
+ *
+ * In iTerm2 CC mode each tmux pane maps to an iTerm2 session.
+ * zsh requests focus reporting (\e[?1004h]) on startup, causing
+ * ^[[I / ^[[O on every focus change — visible as garbage text
+ * while a process is running.
+ *
+ * Writing \e[?1004l to the pane's tty after it has been swapped
+ * into the view tells iTerm2 to stop.  Must happen after swap
+ * because the iTerm2 session context changes on swap-pane.
+ */
+function disableFocusReporting(paneId: string): void {
+	const tty = tryRun(`tmux display -p -t ${paneId} "#{pane_tty}"`);
+	if (tty) tryRun(`printf '\\e[?1004l' > ${tty.trim()}`);
 }
 
 /**
