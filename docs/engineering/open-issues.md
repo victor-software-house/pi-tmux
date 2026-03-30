@@ -76,17 +76,17 @@ Note: uses tmux scrollback buffer (typically 2000 lines). For commands that prod
 
 ---
 
+### COMPLETE-BUILTIN (fixed)
+
+Shell builtins like `read` and `wait` caused premature completion because `pane_current_command` stays as the shell name. The tracker fired after 5 ticks (~1.25s) even though the shell was still blocking inside the builtin.
+
+Fixed by requiring `seenNonShell` to be true before firing completion. The tracker only fires when it observes a non-shell `pane_current_command` (external process) and then sees it return to the shell. For builtins, `silenceTimeout` handles the "waiting for input" case. Added a 5-minute max poll duration safety net.
+
+---
+
 ## Active issues
 
-### COMPLETE-BUILTIN: completion tracker fires prematurely for shell builtins
-
-**Status:** open
-
-**What happens:** `read -r REPLY` and similar shell builtins block for input, but the completion tracker immediately marks the command as finished because `pane_current_command` still shows the shell name.
-
-**Why this matters:** The model moves on. The operator sees the command still waiting. `silenceTimeout` never fires.
-
-**Fix direction:** Detect shell-at-prompt vs shell-running-builtin using shell integration markers or prompt pattern detection from `pipe-pane` logs.
+(none currently)
 
 ---
 

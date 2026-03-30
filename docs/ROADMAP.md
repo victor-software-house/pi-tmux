@@ -56,8 +56,8 @@ Replaced `@pi_staging_index` two-swap return-address pattern with `@pi_name` sin
 ### ~~OUTPUT-TRACK~~ (done)
 Completion notifications and peek now report truncation metadata (`N lines total, showing last M`). Full scrollback captured via `capture-pane -S -`. Peek accepts a `limit` parameter.
 
-### COMPLETE-BUILTIN: Fix completion tracker for shell builtins
-Builtins like `read` and `wait` cause premature completion because `pane_current_command` stays as the shell name. The model reports commands done before the operator has interacted. See `docs/engineering/open-issues.md` COMPLETE-BUILTIN.
+### ~~COMPLETE-BUILTIN~~ (done)
+Completion tracker now requires `seenNonShell` before firing. Builtins rely on `silenceTimeout` instead.
 
 ### ~~TMUX-ENV-WARN~~ (done)
 `checkTmuxEnvironment()` wired into session_start. Warns about missing kitty-keys and extended-keys.
