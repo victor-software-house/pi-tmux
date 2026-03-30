@@ -118,9 +118,7 @@ export function ensureViewPane(session: string, cwd: string, layout: string, hos
 	if (existing) return existing.split(" ")[1] ?? "";
 	const flag = layout === "split-horizontal" ? "-v" : "-h";
 	const raw = run(`tmux split-window ${flag} -t ${tmuxSessionTarget(session)}:${hostWindowIndex} -c "${cwd}" -d -P -F "#{pane_id}"`);
-	const viewPaneId = raw.trim();
-	disableFocusReporting(viewPaneId);
-	return viewPaneId;
+	return raw.trim();
 }
 
 /**
@@ -141,11 +139,7 @@ export function createStagingWindow(staging: string, cwd: string, name: string):
 	}
 	// Label the pane with its logical name — identity survives swap-pane
 	const paneId = tryRun(`tmux display -p -t ${tmuxSessionTarget(staging)}:${idx}.0 "#{pane_id}"`);
-	if (paneId) {
-		const id = paneId.trim();
-		setPaneName(id, safeName);
-		disableFocusReporting(id);
-	}
+	if (paneId) setPaneName(paneId.trim(), safeName);
 	return idx;
 }
 
@@ -170,11 +164,7 @@ export function respawnStagingWindow(staging: string, windowIdx: number, cwd: st
 	run(`tmux respawn-pane -k -t ${tmuxSessionTarget(staging)}:${windowIdx}.0 -c "${cwd}"`);
 	// Re-label the new pane with its logical name (respawn creates a new pane ID)
 	const paneId = tryRun(`tmux display -p -t ${tmuxSessionTarget(staging)}:${windowIdx}.0 "#{pane_id}"`);
-	if (paneId) {
-		const id = paneId.trim();
-		setPaneName(id, name);
-		disableFocusReporting(id);
-	}
+	if (paneId) setPaneName(paneId.trim(), name);
 }
 
 /** Label a pane with its logical name. Survives swap-pane. */
@@ -182,22 +172,7 @@ function setPaneName(paneId: string, name: string): void {
 	run(`tmux set-option -p -t ${paneId} ${NAME_OPTION} "${tmuxEscape(name)}"`);
 }
 
-/**
- * Disable focus event reporting for a pane.
- *
- * In iTerm2 CC mode each tmux pane gets its own iTerm2 session.
- * When zsh starts it requests focus reporting (\e[?1004h) and iTerm2
- * sends ^[[I / ^[[O on every focus change.  These appear as garbage
- * text while a process is running in the pane.
- *
- * Writing \e[?1004l to the pane's tty tells iTerm2 to stop.
- * We use printf piped through the pane's own shell so the sequence
- * travels stdout → tmux → iTerm2.
- */
-export function disableFocusReporting(paneId: string): void {
-	const tty = tryRun(`tmux display -p -t ${paneId} "#{pane_tty}"`);
-	if (tty) tryRun(`printf '\\e[?1004l' > ${tty}`);
-}
+
 
 /** Read the current pane ID for a window target. Returns null if unavailable. */
 export function getPaneId(target: string): string | null {

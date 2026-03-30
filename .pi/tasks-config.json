@@ -1,5 +1,5 @@
 {
-  "taskScope": "session",
+  "taskScope": "project",
   "autoCascade": true,
   "autoClearCompleted": "on_list_complete"
 }
