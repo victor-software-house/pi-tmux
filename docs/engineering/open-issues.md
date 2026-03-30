@@ -70,29 +70,11 @@ Fixed by capturing full scrollback (`capture-pane -S -`) in both completion noti
 
 Note: uses tmux scrollback buffer (typically 2000 lines). For commands that produce more output than the scrollback limit, older output is still lost. A future enhancement could use `pipe-pane` to log to files, but the scrollback approach covers the common case.
 
-### FOCUS-LEAK: focus event escape sequences leak into view pane output
+### FOCUS-LEAK (closed — no longer reproducible)
 
-**Status:** open — needs research
+`^[[I` / `^[[O` focus event escape sequences were reported leaking into view pane output as raw text when the operator clicked in and out of the split.
 
-**What happens:** `^[[I` and `^[[O` appear as raw text in the view pane when the operator clicks in and out of the split.
-
-**Why this matters:** The operator sees garbage characters. Captured output (peek, completion) includes them too.
-
-**Failed approaches:**
-1. `send-keys` with `\x1b[?1004l` — writes to pane stdin. Shell interprets it as input, echoes `1004l` as literal text.
-2. `printf '\x1b[?1004l' > /dev/ttysNNN` — writes to pane tty output side. Works per-pane but couples to swap timing and is fragile.
-3. `set-option -t SESSION focus-events off` — `focus-events` is a tmux **server** option. Any `set-option` targeting any session still changes it globally, breaking Pi's own focus handling and other tmux users.
-
-**Constraints:**
-- Cannot change `focus-events` at any scope — it is strictly server-global.
-- Cannot write escape sequences to pane stdin — the shell processes them as input.
-- Must not affect Pi's host session, other tmux sessions, or operator's tmux config.
-
-**Research needed:**
-- Does the jixiuf tmux fork add per-pane or per-window focus-events control?
-- Does tmux have a `terminal-features` or `terminal-overrides` mechanism that can disable the `focus` feature for specific panes?
-- Is there a tmux hook (`after-swap-pane`, `pane-focus-in`) that could suppress focus reporting for the view pane specifically?
-- Can `capture-pane` be called with flags that strip these sequences, or is post-processing the only option?
+Tested 2026-03-30 with `focus-events on` (server option), tmux next-3.7 (jixiuf fork). Ran both short and long-running commands, clicked in and out of the view pane repeatedly. No `^[[I`/`^[[O` sequences appeared in pane output or in `peek` capture. Unable to reproduce.
 
 ---
 
@@ -106,7 +88,7 @@ Fixed by requiring `seenNonShell` to be true before firing completion. The track
 
 ## Active issues
 
-(none currently)
+(none currently — all issues fixed or closed)
 
 ---
 

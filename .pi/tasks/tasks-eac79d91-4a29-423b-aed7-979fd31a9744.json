@@ -1,0 +1,17 @@
+{
+  "nextId": 2,
+  "tasks": [
+    {
+      "id": "1",
+      "subject": "Test all tmux tool actions end-to-end",
+      "description": "Run through every tmux action: run (fresh + resume), attach, focus, close, peek, list, kill. Verify each produces correct visible behavior.",
+      "status": "in_progress",
+      "activeForm": "Testing tmux tool actions",
+      "metadata": {},
+      "blocks": [],
+      "blockedBy": [],
+      "createdAt": 1774831741796,
+      "updatedAt": 1774831744897
+    }
+  ]
+}
