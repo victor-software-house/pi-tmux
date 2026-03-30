@@ -177,6 +177,11 @@ export function sendCommandToPane(paneTarget: string, command: string): void {
 	run(`tmux send-keys -t ${paneTarget} "${tmuxEscape(command)}" C-m`);
 }
 
+/** Send C-c to interrupt a running command in a pane. */
+export function sendInterrupt(paneTarget: string): void {
+	tryRun(`tmux send-keys -t ${paneTarget} C-c`);
+}
+
 // ---------------------------------------------------------------------------
 // Silence wiring
 // ---------------------------------------------------------------------------
@@ -191,6 +196,16 @@ function wireSilence(session: string, windowIndex: number, config: SilenceConfig
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
+
+/** Stop the completion tracker for a specific pane. Returns true if a tracker was stopped. */
+export function stopCompletionTracking(paneId: string): boolean {
+	const key = `pane:${paneId}`;
+	const tracker = completionTrackers.get(key);
+	if (!tracker) return false;
+	clearInterval(tracker.timer);
+	completionTrackers.delete(key);
+	return true;
+}
 
 /** Stop all trackers. Call on session shutdown. */
 export function stopAll(): void {

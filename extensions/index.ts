@@ -11,7 +11,7 @@ import { Text } from "@mariozechner/pi-tui";
 import type { AttachLayout, ShellMode, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
 import { hasAttachedPane, checkTmuxEnvironment } from "./terminal-tmux.js";
-import { trackCompletionByPane, registerSilence, stopAll } from "./signals.js";
+import { trackCompletionByPane, stopCompletionTracking, sendInterrupt, registerSilence, stopAll } from "./signals.js";
 import { actionRun, actionAttach, actionFocus, actionClose, actionPeek, actionList, actionKill, actionMute } from "./actions.js";
 import type { HostTarget } from "./actions.js";
 import { buildParams, buildDescription, buildPromptSnippet, buildPromptGuidelines } from "./tool-builder.js";
@@ -129,7 +129,7 @@ export default function (pi: ExtensionAPI) {
 		promptGuidelines: buildPromptGuidelines(flags),
 		parameters: buildParams(flags),
 
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const binding = getOrCreateBinding(pi, ctx.sessionManager, ctx.cwd);
 			const session = binding.tmuxSessionName;
 			const host: HostTarget = {
@@ -175,6 +175,15 @@ export default function (pi: ExtensionAPI) {
 							currentSettings.completionTriggerTurn,
 							currentSettings.completionPollIntervalMs,
 						);
+
+						// Wire cancellation: send C-c and stop tracking when the tool call is aborted
+						if (signal) {
+							const pId = paneId as string;
+							signal.addEventListener("abort", () => {
+								sendInterrupt(pId);
+								stopCompletionTracking(pId);
+							}, { once: true });
+						}
 					}
 
 					const timeout = params.silenceTimeout ?? 0;
