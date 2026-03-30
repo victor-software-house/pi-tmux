@@ -76,8 +76,8 @@ Abort signal wired to send C-c and stop completion tracking on cancellation.
 ### ~~SCHEMA-COMPAT~~ (done)
 `prepareArguments` uses TypeBox `Value.Cast` to coerce legacy argument shapes into the current schema.
 
-### ~~FOCUS-LEAK~~ (done)
-`ESC[?1004l` sent to view pane after every swap to suppress focus event escape sequences.
+### FOCUS-LEAK: Strip focus event escape sequences from captured output
+`focus-events` is a tmux server option — cannot be scoped per-session. Fix direction: strip `^[[I`/`^[[O` from capture output in peek and completion code paths.
 
 ## Low priority
 
