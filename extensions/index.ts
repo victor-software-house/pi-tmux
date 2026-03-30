@@ -9,6 +9,7 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Text } from "@mariozechner/pi-tui";
 import type { AttachLayout, ShellMode, SilenceConfig } from "./types.js";
+import { Value } from "@sinclair/typebox/value";
 import { loadSettings, getFlags } from "./settings.js";
 import { hasAttachedPane, checkTmuxEnvironment } from "./terminal-tmux.js";
 import { trackCompletionByPane, stopCompletionTracking, sendInterrupt, registerSilence, stopAll } from "./signals.js";
@@ -121,13 +122,23 @@ export default function (pi: ExtensionAPI) {
 
 	const flags = getFlags(currentSettings);
 
+	const params = buildParams(flags);
+
 	pi.registerTool({
 		name: "tmux",
 		label: "tmux",
 		description: buildDescription(flags),
 		promptSnippet: buildPromptSnippet(flags),
 		promptGuidelines: buildPromptGuidelines(flags),
-		parameters: buildParams(flags),
+		parameters: params,
+
+		prepareArguments(raw: unknown) {
+			// Normalize legacy argument shapes from resumed sessions where
+			// the tool schema may have changed (e.g. 'limit' added in OUTPUT-TRACK).
+			// Value.Cast coerces the raw input to match the current schema,
+			// filling defaults and stripping unknown properties.
+			return Value.Cast(params, raw);
+		},
 
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			const binding = getOrCreateBinding(pi, ctx.sessionManager, ctx.cwd);
