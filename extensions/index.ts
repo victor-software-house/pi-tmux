@@ -131,19 +131,30 @@ export default function (pi: ExtensionAPI) {
 		promptGuidelines: buildPromptGuidelines(flags),
 		parameters: params,
 
-		prepareArguments(raw: unknown) {
-			// Normalize legacy argument shapes from resumed sessions where
-			// the tool schema may have changed (e.g. 'limit' added in OUTPUT-TRACK).
-			if (typeof raw !== "object" || raw === null) return { action: "list" };
-			const args = { ...raw } as Record<string, unknown>;
-			if (args.limit !== undefined) {
-				const n = Number(args.limit);
-				args.limit = Number.isFinite(n) && n > 0 ? n : undefined;
+		prepareArguments(args) {
+			// Normalize legacy argument shapes from resumed sessions.
+			// Runs before schema validation — see Pi docs extensions.md.
+			if (!args || typeof args !== "object") return { action: "list" };
+
+			const input = args as {
+				action?: string;
+				limit?: number;
+				shellMode?: string;
+				[k: string]: unknown;
+			};
+
+			// 'limit' added in OUTPUT-TRACK — coerce non-number values
+			if (input.limit !== undefined && typeof input.limit !== "number") {
+				const n = Number(input.limit);
+				input.limit = Number.isFinite(n) && n > 0 ? n : undefined;
 			}
-			if (args.shellMode !== undefined && typeof args.shellMode !== "string") {
-				args.shellMode = String(args.shellMode);
+
+			// Guard shellMode type
+			if (input.shellMode !== undefined && typeof input.shellMode !== "string") {
+				input.shellMode = String(input.shellMode);
 			}
-			return args as typeof params.static;
+
+			return { action: "list", ...input };
 		},
 
 		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
