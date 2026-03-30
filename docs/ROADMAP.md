@@ -9,10 +9,10 @@
 5. **OUTPUT-TRACK** — Implement `tmux pipe-pane` logging and output metadata in completion notifications. Depends on PANE-META because `peek` must resolve panes by name before ranged output reads are useful.
 6. **COMPLETE-BUILTIN** — Fix premature completion for shell builtins (`read`, `wait`, etc.). Independent of other items. Lower urgency because most commands the model runs are external processes, not interactive builtins.
 7. **HOST-MISMATCH** — Fix host-session to operator-visible-tab mapping before declaring the tmux CC path verified. The split currently appears in a real tmux host session, but not necessarily in the iTerm2 tab Pi is running in. Use the deterministic `TMUX_PANE` + `tmux capture-pane` + `it2api get-buffer` matching check from `docs/engineering/open-issues.md` rather than relying on focus alone.
-8. **FOCUS-LEAK** — Cosmetic. Fix after the swap-pane flow is stable.
+8. **FOCUS-LEAK** — Done. Fixed by clearing pane focus reporting after every `swap-pane` into the visible host view pane.
 9. **CTX-SIGNAL, SCHEMA-COMPAT, MSG-DELIVERY** — Integrations with Pi runtime APIs added in v0.63-0.64. Independent of each other and of the above items.
 
-Items 1-4 are done. **SWAP-SHUFFLE** (not numbered above — emerged after PANE-META) is also done: `@pi_name` pane-label identity replaced the `@pi_staging_index` two-swap workaround. Items 5+ remain. Item 7 blocks final confidence in live tmux CC verification. Items 6, 8, and 9 are otherwise independent.
+Items 1-8 are done except item 9 MSG-DELIVERY. **SWAP-SHUFFLE** (not numbered above — emerged after PANE-META) is also done: `@pi_name` pane-label identity replaced the `@pi_staging_index` two-swap workaround.
 
 ## Terminology
 
@@ -76,8 +76,8 @@ Abort signal wired to send C-c and stop completion tracking on cancellation.
 ### ~~SCHEMA-COMPAT~~ (done)
 `prepareArguments` uses TypeBox `Value.Cast` to coerce legacy argument shapes into the current schema.
 
-### ~~FOCUS-LEAK~~ (closed — no longer reproducible)
-Tested 2026-03-30 with `focus-events on`, tmux next-3.7 (jixiuf fork). No `^[[I`/`^[[O` sequences observed in view pane output or peek capture after repeated click-in/click-out.
+### ~~FOCUS-LEAK~~ (fixed)
+Root cause: the shell enables focus reporting (`\e[?1004h`), which sets pane mode `MODE_FOCUSON`; tmux then forwards focus-in/out as `\e[I` / `\e[O` to the visible pane. Fixed by writing `\e[?1004l` to the pane pty slave after every `swap-pane` into the visible host view pane. Verified 2026-03-30 with three long-running panes, repeated `focus` swaps, operator click-in/click-out on each visible pane, and clean `peek all` output.
 
 ## Low priority
 

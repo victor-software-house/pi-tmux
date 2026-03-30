@@ -70,11 +70,24 @@ Fixed by capturing full scrollback (`capture-pane -S -`) in both completion noti
 
 Note: uses tmux scrollback buffer (typically 2000 lines). For commands that produce more output than the scrollback limit, older output is still lost. A future enhancement could use `pipe-pane` to log to files, but the scrollback approach covers the common case.
 
-### FOCUS-LEAK (closed — no longer reproducible)
+### FOCUS-LEAK (fixed)
 
-`^[[I` / `^[[O` focus event escape sequences were reported leaking into view pane output as raw text when the operator clicked in and out of the split.
+`^[[I` / `^[[O` focus event escape sequences leaked into the visible view pane while a process was running and the operator clicked in and out of the split.
 
-Tested 2026-03-30 with `focus-events on` (server option), tmux next-3.7 (jixiuf fork). Ran both short and long-running commands, clicked in and out of the view pane repeatedly. No `^[[I`/`^[[O` sequences appeared in pane output or in `peek` capture. Unable to reproduce.
+**Root cause:** the shell inside the pane enables focus reporting with `\e[?1004h`, which sets tmux pane mode `MODE_FOCUSON`. When the pane is visible, tmux forwards focus-in/out events as `\e[I` / `\e[O`. Because the visible command pane is usually just printing output, those sequences appear as raw text in scrollback and `peek`.
+
+**What did not work:**
+1. Disabling tmux server option `focus-events` — unrelated in iTerm2 CC mode for this case.
+2. Prefixing the command with `printf '\e[?1004l'` — only helped for the initially visible pane and failed after later `swap-pane` cycles.
+3. Writing `\e[?1004l` at pane creation time — zsh re-enabled focus reporting during startup.
+
+**Fix:** after every `swap-pane` into the host view pane, write `\e[?1004l` to the pane's pty slave. That clears `MODE_FOCUSON` for the pane after it has entered the visible iTerm2 session context.
+
+**Verified 2026-03-30:**
+- three long-running panes (`pane-a`, `pane-b`, `pane-c`)
+- repeated `focus` swaps between panes
+- operator clicked in/out on each visible pane
+- `peek all` showed clean output with no `^[[I` / `^[[O` in any pane
 
 ---
 
