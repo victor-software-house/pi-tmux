@@ -76,8 +76,8 @@ Abort signal wired to send C-c and stop completion tracking on cancellation.
 ### ~~SCHEMA-COMPAT~~ (done)
 `prepareArguments` uses TypeBox `Value.Cast` to coerce legacy argument shapes into the current schema.
 
-### FOCUS-LEAK: Strip focus event escape sequences from captured output
-`focus-events` is a tmux server option — cannot be scoped per-session. Fix direction: strip `^[[I`/`^[[O` from capture output in peek and completion code paths.
+### FOCUS-LEAK: Focus event escape sequences leak into view pane output
+`^[[I` / `^[[O` appear as raw text when the operator clicks in and out of the view pane. `focus-events` is a tmux **server** option — cannot be scoped per-session, per-window, or per-pane. `send-keys` with `\x1b[?1004l` writes to stdin (shell echoes it as text). `printf` to `pane_tty` is fragile and couples to swap timing. Needs proper research into tmux internals and/or the jixiuf fork to find a correct approach. See `docs/engineering/open-issues.md` FOCUS-LEAK for failed attempts and constraints.
 
 ## Low priority
 
