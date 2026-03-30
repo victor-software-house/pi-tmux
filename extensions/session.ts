@@ -103,12 +103,6 @@ export function ensureStagingSession(session: string, cwd: string): string {
 	const staging = deriveStagingName(session);
 	if (!isSessionAlive(staging)) {
 		run(`tmux new-session -d -s ${staging} -c "${cwd}"`);
-		// Disable focus event reporting for this session only.
-		// Panes created here get swapped into the visible view pane —
-		// without this, ^[[I / ^[[O escape sequences leak into output
-		// when the operator clicks in and out. Does not affect Pi's
-		// own host session or any other tmux session.
-		tryRun(`tmux set-option -t ${tmuxSessionTarget(staging)} focus-events off`);
 	}
 	return staging;
 }

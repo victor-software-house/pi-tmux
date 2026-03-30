@@ -70,9 +70,18 @@ Fixed by capturing full scrollback (`capture-pane -S -`) in both completion noti
 
 Note: uses tmux scrollback buffer (typically 2000 lines). For commands that produce more output than the scrollback limit, older output is still lost. A future enhancement could use `pipe-pane` to log to files, but the scrollback approach covers the common case.
 
-### FOCUS-LEAK (fixed)
+### FOCUS-LEAK: focus event escape sequences leak into pane output
 
-`^[[I` and `^[[O` focus event escape sequences appeared as raw text in the view pane. Fixed by sending `ESC[?1004l` to the view pane after every `swap-pane`.
+**Status:** open (cosmetic)
+
+**What happens:** `^[[I` and `^[[O` appear as raw text in the view pane when the operator clicks in and out.
+
+**Why previous fixes failed:**
+- `send-keys` with `\x1b[?1004l`: writes to stdin, shell echoes `1004l` as text
+- `printf` to `pane_tty`: works per-pane but fragile timing with swaps
+- `set-option focus-events off` on staging session: `focus-events` is a **server option** in tmux, not session-scoped. Setting it anywhere changes it globally, breaking Pi's own focus handling.
+
+**Fix direction:** Strip `^[[I` / `^[[O` from output in the `captureFullOutput` and `capturePaneExcerpt` code paths before returning to the model. Do not change any tmux server/session/window options.
 
 ---
 
