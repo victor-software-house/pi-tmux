@@ -70,11 +70,11 @@ See Critical section above.
 ### ~~HOST-MISMATCH~~ (done)
 Host window detected from `TMUX_PANE` at startup, threaded through all view pane operations via `HostTarget`.
 
-### CTX-SIGNAL: Wire ctx.signal for cancellation support
-Pi 0.63.2 added `ctx.signal` to extension contexts. Currently `actionRun` ignores the signal parameter. Wire it to kill the staging pane when the user cancels a tool call mid-execution.
+### ~~CTX-SIGNAL~~ (done)
+Abort signal wired to send C-c and stop completion tracking on cancellation.
 
-### SCHEMA-COMPAT: Use prepareArguments for schema migration
-Pi 0.64.0 added `ToolDefinition.prepareArguments` hook. Use it to handle resumed sessions where the tool schema may have changed without breaking old sessions.
+### ~~SCHEMA-COMPAT~~ (done)
+`prepareArguments` uses TypeBox `Value.Cast` to coerce legacy argument shapes into the current schema.
 
 ### ~~FOCUS-LEAK~~ (done)
 `ESC[?1004l` sent to view pane after every swap to suppress focus event escape sequences.
