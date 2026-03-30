@@ -155,10 +155,11 @@ export function createStagingWindow(staging: string, cwd: string, name: string):
 export function swapViewPane(hostSession: string, paneId: string, hostWindowIndex = 0): void {
 	const viewTarget = `${tmuxSessionTarget(hostSession)}:${hostWindowIndex}.1`;
 	run(`tmux swap-pane -d -s ${viewTarget} -t ${paneId}`);
-	// Disable focus event reporting in the view pane to prevent ^[[I / ^[[O
-	// escape sequences leaking into visible output when the operator clicks
-	// in and out of the pane.
-	tryRun(`tmux send-keys -t ${viewTarget} "\x1b[?1004l"`);
+	// Disable focus event reporting by writing to the pane's tty (output side).
+	// send-keys writes to stdin (the shell interprets it as input), but
+	// \x1b[?1004l is a terminal escape that must go to stdout.
+	const tty = tryRun(`tmux display-message -p -t ${viewTarget} "#{pane_tty}"`);
+	if (tty) tryRun(`printf '\x1b[?1004l' > ${tty.trim()}`);
 }
 
 /**
