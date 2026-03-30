@@ -24,7 +24,6 @@ const IDLE_SHELLS = new Set(["bash", "zsh", "sh", "fish", "dash", "ksh", "tcsh",
 interface CompletionTracker {
 	timer: ReturnType<typeof setInterval>;
 	session: string;
-	windowIndex: number;
 	initialCommand: string | null;
 }
 
@@ -85,10 +84,17 @@ export function trackCompletionByPane(
 
 	const currentCmd = tryRun(`tmux display -p -t ${paneId} "#{pane_current_command}"`);
 	let seenNonShell = !IDLE_SHELLS.has(currentCmd ?? "");
-	let ticks = 0;
+	const startTime = Date.now();
+	const maxPollMs = 300_000; // 5 minutes max before giving up
 
 	const timer = setInterval(() => {
-		ticks++;
+		// Safety: stop polling after max duration
+		if (Date.now() - startTime > maxPollMs) {
+			clearInterval(timer);
+			completionTrackers.delete(key);
+			return;
+		}
+
 		const cmd = tryRun(`tmux display -p -t ${paneId} "#{pane_current_command}"`);
 
 		if (cmd === null) {
@@ -97,7 +103,10 @@ export function trackCompletionByPane(
 			return;
 		}
 		if (!IDLE_SHELLS.has(cmd)) { seenNonShell = true; return; }
-		if (!seenNonShell && ticks < 5) return;
+		// Only fire completion when we saw a non-shell command start and then
+		// return to the shell. This prevents false completion for shell builtins
+		// like `read` or `wait` where pane_current_command stays as the shell name.
+		if (!seenNonShell) return;
 
 		clearInterval(timer);
 		completionTrackers.delete(key);
@@ -118,7 +127,7 @@ export function trackCompletionByPane(
 		);
 	}, pollIntervalMs);
 
-	completionTrackers.set(key, { timer, session, windowIndex: -1, initialCommand: currentCmd });
+	completionTrackers.set(key, { timer, session, initialCommand: currentCmd });
 }
 
 // ---------------------------------------------------------------------------
