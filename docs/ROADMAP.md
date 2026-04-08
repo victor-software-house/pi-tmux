@@ -41,7 +41,46 @@ All original roadmap items are resolved and live-verified:
 
 Pi 0.64.0 fixed extension-queued user messages being dropped during active turns. Verify this works for the silence alert flow. If it does, remove the workaround (if any) and document.
 
-### 2. ITERM2-API-EVAL — Evaluate iTerm2 native API as control plane
+### 2. SESSION-ENTRIES — Persist all state as session entries
+
+**Priority:** High — immediate improvement, no architectural dependency
+**Effort:** Medium
+
+Replace disk-based state and ephemeral in-memory trackers with Pi session entries (`pi.appendEntry`). This makes sessions self-contained, auditable, and deterministic.
+
+**Current problems:**
+- Completion trackers are in-memory `setInterval` loops — lost on crash or reload
+- Settings stored on disk (`~/.pi/agent/extensions/pi-tmux/settings.json`) — not session-scoped
+- No audit trail of commands started, completed, or failed
+- Silence events invisible to session history
+- Output diffs between peeks are lost
+
+**Entry types to add:**
+
+| Entry customType | When | Data |
+|-----------------|------|------|
+| `tmux-command-started` | `actionRun` creates a pane | command, name, paneId, timestamp |
+| `tmux-command-completed` | Completion tracker fires | name, exitExcerpt, duration, totalLines |
+| `tmux-silence-detected` | Silence alert fires | name, windowIndex, interval, outputExcerpt |
+| `tmux-pane-focused` | `actionFocus` swaps a pane | name, paneId |
+| `tmux-pane-closed` | `actionClose` kills a pane | name, paneId |
+
+**Benefits:**
+- Sessions are self-contained — replay shows exactly what happened
+- Crash recovery — rehydrate completion trackers from entries on session_start
+- Agent gets precise, minimal state updates via `sendMessage` referencing entry data
+- Branching/forking preserves command history naturally
+- Other extensions can read tmux state from session entries
+
+**Migration path:**
+1. Add entry types alongside existing in-memory tracking (additive)
+2. Rehydrate trackers from entries on session_start
+3. Remove disk-based settings in favor of session entries
+4. Remove raw `setInterval` polling once event-driven completion is available
+
+`state.ts` already uses `appendEntry` correctly for tmux session identity. This item extends that pattern to all mutable state.
+
+### 3. ITERM2-API-EVAL — Evaluate iTerm2 native API as control plane
 
 **Priority:** High — foundational decision
 **Effort:** Research + prototype
@@ -86,7 +125,7 @@ This could replace tmux as the terminal control layer for iTerm2 users:
 
 **Deliverable:** A research document in `docs/engineering/` with findings, and a prototype demonstrating observable shell output via the iTerm2 API.
 
-### 3. OUTPUT-STREAMING — Real-time output diffs to agent
+### 4. OUTPUT-STREAMING — Real-time output diffs to agent
 
 **Priority:** High — core differentiator
 **Blocked by:** ITERM2-API-EVAL (determines backend)
@@ -122,7 +161,7 @@ iTerm2 session
 - **tmux fallback path:** `pipe-pane` to log file, `fs.watch` for changes (still event-driven, not polling), deliver diffs via steer
 - **Hybrid:** iTerm2 API for output streaming, tmux for session persistence/detach
 
-### 4. AGENT-PANE-STABILITY — Expose staging-window architecture as reusable primitive
+### 5. AGENT-PANE-STABILITY — Expose staging-window architecture as reusable primitive
 
 **Priority:** Medium
 **Blocked by:** ITERM2-API-EVAL (determines whether tmux staging is still relevant)
@@ -136,7 +175,7 @@ pi-tmux's staging-window architecture already solves this: staging windows are s
 - Or, if ITERM2-API-EVAL shows the native API is better, build the primitive on top of that instead
 - Key requirement: stable session identity that survives pane lifecycle events
 
-### 5. APPLESCRIPT-AUDIT — Validate or replace AppleScript usage
+### 6. APPLESCRIPT-AUDIT — Validate or replace AppleScript usage
 
 **Priority:** Medium
 **Blocked by:** ITERM2-API-EVAL
