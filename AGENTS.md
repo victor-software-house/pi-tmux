@@ -57,6 +57,13 @@ Identity:
    - Re-detection only on error, max 3 retries
    - Volatile values (host session name) are never persisted
 
+9. **Event-driven, not polling.**
+   - Subscribe to events and react — do not poll and guess
+   - Terminal output, command completion, silence — all should be push-based notifications
+   - iTerm2 native API provides `ScreenUpdateNotification`, `PromptNotification`, session lifecycle events
+   - Polling loops (`setInterval`, tick counters, periodic `capture-pane`) are technical debt to be replaced
+   - The only acceptable timer is a debounce/throttle on top of a push event, not a substitute for one
+
 ## Working practices
 
 ### Understand before changing

@@ -1,18 +1,154 @@
 # pi-tmux Roadmap
 
-## Suggested execution order
+## Vision
 
-1. **PANE-META** — Replace pane metadata with staging window queries. This unblocks list, peek, close, focus, resume, and mute. Every other improvement depends on these actions working correctly.
-2. **ATTACH-VERIFY** — Small fix, eliminates a class of confusing "already visible" false positives. Do it while touching the terminal code.
-3. **LEGACY-GATE** (phase 1) — Add the runtime gate so the tool stops pretending to work outside tmux. No code deletion, just a check and a warning. This prevents wasted debugging time on a path that will never be supported.
-4. **LEGACY-GATE** (phases 2-3) — Delete legacy branches from `actions.ts`, delete `terminal.ts` dispatcher, delete `terminal-legacy.ts`, rename `terminal-tmux.ts` to `terminal.ts`. Include **HOST-PLUMBING** refactor: replace positional `hostSession` + `hostWindowIndex` threading with a single `HostTarget` object. Easier to do after PANE-META because `actions.ts` will already be heavily edited.
-5. **OUTPUT-TRACK** — Implement `tmux pipe-pane` logging and output metadata in completion notifications. Depends on PANE-META because `peek` must resolve panes by name before ranged output reads are useful.
-6. **COMPLETE-BUILTIN** — Fix premature completion for shell builtins (`read`, `wait`, etc.). Independent of other items. Lower urgency because most commands the model runs are external processes, not interactive builtins.
-7. **HOST-MISMATCH** — Fix host-session to operator-visible-tab mapping before declaring the tmux CC path verified. The split currently appears in a real tmux host session, but not necessarily in the iTerm2 tab Pi is running in. Use the deterministic `TMUX_PANE` + `tmux capture-pane` + `it2api get-buffer` matching check from `docs/engineering/open-issues.md` rather than relying on focus alone.
-8. **FOCUS-LEAK** — Done. Fixed by clearing pane focus reporting after every `swap-pane` into the visible host view pane.
-9. **CTX-SIGNAL, SCHEMA-COMPAT, MSG-DELIVERY** — Integrations with Pi runtime APIs added in v0.63-0.64. Independent of each other and of the above items.
+pi-tmux enables agents to manipulate live interactive terminals — running commands in the background, observing output as diffs, responding to prompts, and sharing terminal state across agents. The operator sees what the agent does; the agent sees what it cannot see.
 
-Items 1-8 are done except item 9 MSG-DELIVERY. **SWAP-SHUFFLE** (not numbered above — emerged after PANE-META) is also done: `@pi_name` pane-label identity replaced the `@pi_staging_index` two-swap workaround.
+The current architecture uses tmux CC mode with a staging/host session split. It relies on polling (`pane_current_command` checks, `capture-pane` reads, silence timers) which is inherently fragile and wasteful.
+
+The next phase moves to an **event-driven architecture** built on iTerm2's native WebSocket/Protobuf API (`@shadr/iterm2-ts`). The API provides push-based notifications for screen updates, command start/end, prompt events, and session lifecycle — eliminating polling entirely. The agent subscribes to events and reacts, rather than polling and guessing.
+
+---
+
+## Completed (v1.3.1)
+
+All original roadmap items are resolved and live-verified:
+
+| Issue | Summary |
+|-------|---------|
+| PANE-META | Staging-window-based inventory replaces pane-option metadata |
+| ATTACH-VERIFY | View pane existence verified via tmux query |
+| LEGACY-GATE | All non-tmux code paths removed, HostTarget object |
+| SWAP-SHUFFLE | @pi_name single-swap identity replaces @pi_staging_index two-swap |
+| HOST-PLUMBING | HostTarget replaces positional host args |
+| HOST-MISMATCH | Host window detected from TMUX_PANE at startup |
+| OUTPUT-TRACK | Truncation metadata in completion and peek |
+| COMPLETE-BUILTIN | seenNonShell guard prevents false completion for builtins |
+| TMUX-ENV-WARN | Environment validation warnings on session start |
+| FOCUS-LEAK | Focus reporting disabled on pane TTY after every swap-pane |
+| CTX-SIGNAL | Abort signal wired to send C-c and stop completion tracking |
+| SCHEMA-COMPAT | prepareArguments aligned with Pi 0.64+ pattern |
+| LIST-ATTACHED | Real attach/detach state in list output |
+
+---
+
+## Forward roadmap
+
+### 1. MSG-DELIVERY — Verify Pi 0.64 message delivery fix
+
+**Priority:** Low
+**Effort:** Verification only
+
+Pi 0.64.0 fixed extension-queued user messages being dropped during active turns. Verify this works for the silence alert flow. If it does, remove the workaround (if any) and document.
+
+### 2. ITERM2-API-EVAL — Evaluate iTerm2 native API as control plane
+
+**Priority:** High — foundational decision
+**Effort:** Research + prototype
+
+The `@shadr/iterm2-ts` library (already used in `pi-term`) provides TypeScript bindings for iTerm2's native WebSocket/Protobuf API. Key capabilities:
+
+- **ScreenUpdateNotification** — real-time notification when a session's screen changes
+- **PromptNotification** — command start, command end (with exit status), prompt events
+- **Session creation/termination** — create splits, tabs, manage lifecycle
+- **Variable monitoring** — watch session variables for state changes
+- **Keystroke monitoring** — observe keystrokes in sessions
+
+This could replace tmux as the terminal control layer for iTerm2 users:
+
+| Capability | Current (tmux) | Potential (iTerm2 API) |
+|------------|---------------|----------------------|
+| Session creation | `tmux new-window` | `CreateTab` / `SplitPane` |
+| Output capture | `capture-pane -S -` (polling) | `ScreenUpdateNotification` (push) |
+| Command completion | `pane_current_command` polling | `PromptNotification.commandEnd` (push) |
+| Output diffs | Not supported | `ScreenUpdateNotification` + screen diff |
+| Exit status | Wrapper script + file | `PromptNotification.commandEnd.status` |
+| Focus management | `swap-pane` + `select-pane` | Native split/tab focus |
+
+**Questions to answer:**
+
+1. Can `ScreenUpdateNotification` deliver screen diffs efficiently, or only "screen changed" signals?
+2. Can sessions be created invisibly (background) and observed without being visible?
+3. Does the API support reading screen content (like `capture-pane`) or only change notifications?
+4. Is the WebSocket connection reliable for long-running sessions?
+5. Can this eliminate the need for tmux entirely on iTerm2, or is tmux still needed for session persistence/detach?
+6. What does the `pi-term` repo (`~/workspace/victor/pi-term/`) already prove about the API's reliability?
+
+**Event-driven targets — replace every polling loop:**
+
+| Current polling pattern | Event-driven replacement |
+|------------------------|-------------------------|
+| `pane_current_command` tick loop for completion | `PromptNotification.commandEnd` push event |
+| `capture-pane` periodic reads for silence detection | `ScreenUpdateNotification` — no update = silence |
+| Wrapper script + exit-code file for completion status | `PromptNotification.commandEnd.status` |
+| `peek` as the only way to read output | `ScreenUpdateNotification` → diff accumulator → agent subscription |
+| Silence backoff timers | Absence of `ScreenUpdateNotification` for N seconds |
+
+**Deliverable:** A research document in `docs/engineering/` with findings, and a prototype demonstrating observable shell output via the iTerm2 API.
+
+### 3. OUTPUT-STREAMING — Real-time output diffs to agent
+
+**Priority:** High — core differentiator
+**Blocked by:** ITERM2-API-EVAL (determines backend)
+
+Replace peek-based polling with event-driven output streaming. The agent subscribes to shell output and receives only diffs (new content since last observation), non-blocking.
+
+**Architecture:**
+
+```
+iTerm2 session
+  │
+  ├── ScreenUpdateNotification (push)
+  │       ↓
+  ├── Screen state tracker (maintains current screen content)
+  │       ↓
+  ├── Diff engine (computes delta from last delivered state)
+  │       ↓
+  └── Agent subscription (delivers diffs via steer message)
+```
+
+**Requirements:**
+- Event-driven: no polling loops, no timers, no periodic capture
+- Agent subscribes to a shell session's output stream
+- Receives diffs (new lines/content since last observation), not full scrollback
+- Non-blocking — agent continues working while shells run
+- Multiple concurrent observable shells
+- Configurable: opt-in per shell (not all shells need observation)
+- Backpressure: if agent is busy, diffs accumulate and are delivered as a batch when agent is ready
+
+**Implementation paths:**
+
+- **iTerm2 API path (preferred):** Subscribe to `ScreenUpdateNotification`, maintain screen state, compute diffs, deliver via steer
+- **tmux fallback path:** `pipe-pane` to log file, `fs.watch` for changes (still event-driven, not polling), deliver diffs via steer
+- **Hybrid:** iTerm2 API for output streaming, tmux for session persistence/detach
+
+### 4. AGENT-PANE-STABILITY — Expose staging-window architecture as reusable primitive
+
+**Priority:** Medium
+**Blocked by:** ITERM2-API-EVAL (determines whether tmux staging is still relevant)
+
+The `pi-interactive-subagents` extension suffers from stale pane references — it creates tmux panes that die or get reassigned, then fails when polling output from dead pane IDs (e.g., `can't find pane: %3`).
+
+pi-tmux's staging-window architecture already solves this: staging windows are stable identifiers, pane IDs are transient. This pattern should be extractable as a reusable primitive that other extensions (like pi-interactive-subagents) can use.
+
+**Options:**
+- Export a `ManagedTerminalSession` API from pi-tmux that other extensions can consume
+- Or, if ITERM2-API-EVAL shows the native API is better, build the primitive on top of that instead
+- Key requirement: stable session identity that survives pane lifecycle events
+
+### 5. APPLESCRIPT-AUDIT — Validate or replace AppleScript usage
+
+**Priority:** Medium
+**Blocked by:** ITERM2-API-EVAL
+
+Current pi-tmux uses AppleScript for `/tmux-promote` and `attach` actions. The `@shadr/iterm2-ts` library may provide a better path:
+
+- **AppleScript:** Brittle, slow, requires accessibility permissions, hard to debug
+- **iTerm2 API:** TypeScript, WebSocket-based, type-safe, push notifications, no accessibility permissions
+
+Audit all AppleScript usage and determine what can be replaced with the native API.
+
+---
 
 ## Terminology
 
@@ -24,68 +160,10 @@ Use exact tmux names everywhere. No metaphors, no vague terms.
 | tmux window | A numbered tab within a tmux session (e.g. window `4` of session `13`) |
 | tmux pane | A rectangular region within a window, identified by pane ID (e.g. `%84`) |
 | pane ID | Tmux's unique identifier for a pane (e.g. `%84`). Survives `swap-pane`. |
-| pane option | A user-defined key-value pair on a pane (`set-option -p`). Travels with the pane ID through `swap-pane`. |
 | host session | The tmux session Pi is running in. Detected from `TMUX_PANE` at startup. |
-| host window | The tmux window within the host session where Pi's own pane lives. Detected from `TMUX_PANE` at startup. |
-| view pane | The split pane next to Pi (pane index `1` in the host window). Shows one command's output at a time. Created by `split-window`. |
+| host window | The tmux window within the host session where Pi's own pane lives. |
+| view pane | The split pane next to Pi (pane index `1` in the host window). Shows one command's output at a time. |
 | staging session | A separate tmux session (`{name}-stg`) not attached to iTerm2 CC. Command panes are created here. |
 | staging window | A tmux window in the staging session. One per command. |
-| `@pi_name` | Pane option labeling a command pane with its logical name (e.g. `build`). The sole identity for a command pane. |
-| `swap-pane` | Tmux command that exchanges two panes between positions. Both pane IDs move. Accepts pane IDs directly. |
-
----
-
-## Critical — fix before further feature work (all done)
-
-### ~~PANE-META~~ (done)
-Replaced pane-option metadata with staging-window-based inventory. Then further evolved into `@pi_name` pane-label identity via SWAP-SHUFFLE fix.
-
-### ~~ATTACH-VERIFY~~ (done)
-View pane existence verified via tmux query before reporting attached.
-
-### ~~LEGACY-GATE~~ (done)
-All three phases complete. HostTarget object replaces positional host args. Dead code removed.
-
-Remaining from the original plan: `terminal-tmux.ts` has not been renamed to `terminal.ts` — this would break test imports and is deferred.
-
-### ~~SWAP-SHUFFLE~~ (done)
-Replaced `@pi_staging_index` two-swap return-address pattern with `@pi_name` single-swap pane-label identity. `listManagedPanes` discovers panes by `@pi_name` across staging + view. Single `swap-pane` by pane ID.
-
-## High priority
-
-### ~~OUTPUT-TRACK~~ (done)
-Completion notifications and peek now report truncation metadata (`N lines total, showing last M`). Full scrollback captured via `capture-pane -S -`. Peek accepts a `limit` parameter.
-
-### ~~COMPLETE-BUILTIN~~ (done)
-Completion tracker now requires `seenNonShell` before firing. Builtins rely on `silenceTimeout` instead.
-
-### ~~TMUX-ENV-WARN~~ (done)
-`checkTmuxEnvironment()` wired into session_start. Warns about missing kitty-keys and extended-keys.
-
-### ~~ATTACH-VERIFY~~ (done)
-See Critical section above.
-
-## Medium priority
-
-### ~~HOST-MISMATCH~~ (done)
-Host window detected from `TMUX_PANE` at startup, threaded through all view pane operations via `HostTarget`.
-
-### ~~CTX-SIGNAL~~ (done)
-Abort signal wired to send C-c and stop completion tracking on cancellation.
-
-### ~~SCHEMA-COMPAT~~ (done)
-`prepareArguments` uses TypeBox `Value.Cast` to coerce legacy argument shapes into the current schema.
-
-### ~~FOCUS-LEAK~~ (fixed)
-Root cause: the shell enables focus reporting (`\e[?1004h`), which sets pane mode `MODE_FOCUSON`; tmux then forwards focus-in/out as `\e[I` / `\e[O` to the visible pane. Fixed by writing `\e[?1004l` to the pane pty slave after every `swap-pane` into the visible host view pane. Verified 2026-03-30 with three long-running panes, repeated `focus` swaps, operator click-in/click-out on each visible pane, and clean `peek all` output.
-
-## Low priority
-
-### LIST-ATTACHED (done)
-`actionList()` now queries `hasAttachedPane(host.session, host.windowIndex)` and reports the real state in both the header and `details.attached`, so `tmux list` shows `(detached)` when the host view pane is gone. Live verification passed on 2026-03-30 after reloading Pi with commit `ca9f94c`: `run` created an attached pane, `close` removed it, `list` reported `(detached)`, and `attach` restored `(attached)`.
-
-### MSG-DELIVERY: Leverage extension-queued message delivery fix
-Pi 0.64.0 fixed extension-queued user messages being dropped during active turns. Verify this works for the silence alert flow.
-
-### HOST-RENAME: Rename host session on startup
-Consider renaming the CC host session to a human-readable name. Currently the host session has a tmux auto-assigned numeric name. Low priority since the name is not user-facing in iTerm2 CC mode.
+| `@pi_name` | Pane option labeling a command pane with its logical name. The sole identity for a command pane. |
+| observable shell | A terminal session whose output is streamed to the agent as diffs, non-blocking. |
