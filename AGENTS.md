@@ -144,6 +144,23 @@ When a test reveals a problem:
 
 Do NOT: `"Fixed the attach bug"` → DO: `"fix: actionAttach early return bypassed openTerminal in tmux mode"`
 
+### Commit message discipline (versioning)
+
+This repo uses semantic-release. Commit types map directly to npm version bumps — be conservative:
+
+| Prefix | Bump | Use when |
+|--------|------|----------|
+| `fix:` | patch | bug fix, behavioral correction |
+| `feat:` | minor | genuinely new tool action or capability exposed to Pi users |
+| `feat!:` / `BREAKING CHANGE:` | **major** | public tool API breaks for downstream Pi installs — almost never |
+| `chore:` `docs:` `refactor:` `test:` `ci:` | none | everything else |
+
+Rules:
+- Internal refactors, session state changes, tmux command changes → `refactor:` or `fix:`, never `feat!:`
+- A new `action:` value in the tool schema → `feat:`
+- Removing or renaming an existing `action:` value that Pi users depend on → `feat!:` (rare)
+- When in doubt, use `fix:`. Under-bumping is recoverable; burned major versions are permanent.
+
 ### Before every commit
 
 - `npm run typecheck` passes
