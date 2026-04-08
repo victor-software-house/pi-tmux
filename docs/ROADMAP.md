@@ -82,7 +82,7 @@ Root cause: the shell enables focus reporting (`\e[?1004h`), which sets pane mod
 ## Low priority
 
 ### LIST-ATTACHED (done)
-`actionList()` now queries `hasAttachedPane(host.session, host.windowIndex)` and reports the real state in both the header and `details.attached`, so `tmux list` shows `(detached)` when the host view pane is gone.
+`actionList()` now queries `hasAttachedPane(host.session, host.windowIndex)` and reports the real state in both the header and `details.attached`, so `tmux list` shows `(detached)` when the host view pane is gone. Live verification passed on 2026-03-30 after reloading Pi with commit `ca9f94c`: `run` created an attached pane, `close` removed it, `list` reported `(detached)`, and `attach` restored `(attached)`.
 
 ### MSG-DELIVERY: Leverage extension-queued message delivery fix
 Pi 0.64.0 fixed extension-queued user messages being dropped during active turns. Verify this works for the silence alert flow.

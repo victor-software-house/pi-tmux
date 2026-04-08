@@ -109,6 +109,12 @@ Fixed by making `actionList()` call `hasAttachedPane(host.session, host.windowIn
 3. run `tmux list` and confirm it reports `(detached)` when no host view pane exists
 4. run `tmux attach` and confirm it reports `Already attached.` only when the split is actually present
 
+**Verified live 2026-03-30:** after reloading Pi with commit `ca9f94c`, a live `run` → `close` → `list` → `attach` sequence reported `(detached)` after the visible pane was closed and returned to `(attached)` after `attach` recreated the split.
+
+## Active issues
+
+(none currently — LIST-ATTACHED was the last active issue and now passes the live verification sequence.)
+
 ---
 
 ## Verification discipline
