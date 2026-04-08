@@ -1,0 +1,12 @@
+# Dev tooling
+.github/
+.pi/
+test/
+docs/
+bun.lock
+lefthook.yml
+commitlint.config.mjs
+release.config.mjs
+tsconfig.json
+AGENTS.md
+PLAN.md
