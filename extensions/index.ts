@@ -82,30 +82,22 @@ export default function (pi: ExtensionAPI) {
 	initCommandSettings(currentSettings);
 	initCommandPi(pi);
 
-	pi.on("session_start", async (_event, ctx) => {
+	// session_start fires for startup, new, resume, fork, and reload (Pi 0.65+).
+	// This single handler replaces the removed session_switch and session_fork events.
+	pi.on("session_start", async (event, ctx) => {
 		currentSettings = loadSettings();
 		initCommandSettings(currentSettings);
 		rehydrate(ctx.sessionManager);
 
-		// Surface tmux environment warnings once per session
-		for (const warning of checkTmuxEnvironment()) {
-			ctx.ui.notify(warning, "warning");
+		// Surface tmux environment warnings only on first startup, not on resume/fork
+		if (event.reason === "startup") {
+			for (const warning of checkTmuxEnvironment()) {
+				ctx.ui.notify(warning, "warning");
+			}
 		}
 	});
 
-	pi.on("session_switch", async (_event, ctx) => {
-		currentSettings = loadSettings();
-		initCommandSettings(currentSettings);
-		rehydrate(ctx.sessionManager);
-	});
-
 	pi.on("session_tree", async (_event, ctx) => {
-		currentSettings = loadSettings();
-		initCommandSettings(currentSettings);
-		rehydrate(ctx.sessionManager);
-	});
-
-	pi.on("session_fork", async (_event, ctx) => {
 		currentSettings = loadSettings();
 		initCommandSettings(currentSettings);
 		rehydrate(ctx.sessionManager);

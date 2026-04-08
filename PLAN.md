@@ -412,7 +412,7 @@ Keep resumed sessions working even if the tmux tool schema changes.
 
 ### Goal
 
-Verify whether Pi 0.64.0 already fixes the extension-queued message loss that affected silence notifications.
+Verify whether Pi 0.66.0 already fixes the extension-queued message loss that affected silence notifications.
 
 ### Implementation
 

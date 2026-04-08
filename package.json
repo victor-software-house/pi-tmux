@@ -17,7 +17,8 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "check": "bun run typecheck && bun test",
-    "prepare": "lefthook install"
+    "prepare": "lefthook install",
+    "release": "pnpm exec semantic-release"
   },
   "pi": {
     "extensions": [
@@ -33,9 +34,9 @@
   "devDependencies": {
     "@commitlint/cli": "^20.5.0",
     "@commitlint/config-conventional": "^20.5.0",
-    "@mariozechner/pi-ai": "^0.64.0",
-    "@mariozechner/pi-coding-agent": "^0.64.0",
-    "@mariozechner/pi-tui": "^0.64.0",
+    "@mariozechner/pi-ai": "^0.66.0",
+    "@mariozechner/pi-coding-agent": "^0.66.0",
+    "@mariozechner/pi-tui": "^0.66.0",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
     "@semantic-release/github": "^12.0.6",

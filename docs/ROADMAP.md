@@ -27,19 +27,19 @@ All original roadmap items are resolved and live-verified:
 | TMUX-ENV-WARN | Environment validation warnings on session start |
 | FOCUS-LEAK | Focus reporting disabled on pane TTY after every swap-pane |
 | CTX-SIGNAL | Abort signal wired to send C-c and stop completion tracking |
-| SCHEMA-COMPAT | prepareArguments aligned with Pi 0.64+ pattern |
+| SCHEMA-COMPAT | prepareArguments aligned with Pi 0.66+ pattern |
 | LIST-ATTACHED | Real attach/detach state in list output |
 
 ---
 
 ## Forward roadmap
 
-### 1. MSG-DELIVERY — Verify Pi 0.64 message delivery fix
+### 1. MSG-DELIVERY — Verify Pi 0.66 message delivery fix
 
 **Priority:** Low
 **Effort:** Verification only
 
-Pi 0.64.0 fixed extension-queued user messages being dropped during active turns. Verify this works for the silence alert flow. If it does, remove the workaround (if any) and document.
+Pi 0.66.0 fixed extension-queued user messages being dropped during active turns. Verify this works for the silence alert flow. If it does, remove the workaround (if any) and document.
 
 ### 2. SESSION-ENTRIES — Persist all state as session entries
 

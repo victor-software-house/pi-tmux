@@ -1,3 +1,4 @@
 node_modules/
 .pi/tasks/
 .pi/sessions/
+package-lock.json
