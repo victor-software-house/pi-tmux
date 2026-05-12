@@ -11,7 +11,7 @@
  * /tmux split     Attach as vertical split
  * /tmux hsplit    Attach as horizontal split
  */
-import type { ExtensionAPI, ExtensionCommandContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import type { AutoAttachMode, AttachLayout, AutoFocus, CompletionDelivery, ShellMode, TmuxSettings, WindowReuse } from "./types.js";
 import {
 	saveSettings,
@@ -148,8 +148,8 @@ export function registerTmuxCommand(pi: ExtensionAPI): void {
 // ---------------------------------------------------------------------------
 
 async function openSettingsPanel(ctx: ExtensionCommandContext): Promise<void> {
-	const { getSettingsListTheme } = await import("@mariozechner/pi-coding-agent");
-	const { Container, SettingsList, Text: TuiText } = await import("@mariozechner/pi-tui");
+	const { getSettingsListTheme } = await import("@earendil-works/pi-coding-agent");
+	const { Container, SettingsList, Text: TuiText } = await import("@earendil-works/pi-tui");
 
 	let changed = false;
 

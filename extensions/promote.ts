@@ -3,7 +3,7 @@
  * Only registered when pi is NOT already inside tmux.
  * Uses it2api for iTerm2 integration (create-tab, get-prompt, send-text).
  */
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { resolveProjectRoot, tryRun, tmuxSessionTarget } from "./session.js";
 import { getOrCreateBinding } from "./state.js";
 

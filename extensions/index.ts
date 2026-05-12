@@ -6,8 +6,8 @@
  *           /tmux-promote (legacy, only outside tmux)
  */
 
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { Text } from "@mariozechner/pi-tui";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import type { AttachLayout, ShellMode, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
 import { hasAttachedPane, checkTmuxEnvironment } from "./terminal-tmux.js";
@@ -281,15 +281,22 @@ export default function (pi: ExtensionAPI) {
 		},
 
 		renderCall(args, theme) {
+			const call = args as {
+				action?: string;
+				command?: string;
+				name?: string;
+				mode?: string;
+				window?: string | number;
+			};
 			let text = theme.fg("toolTitle", theme.bold("tmux "));
-			text += theme.fg("accent", args.action ?? "tmux");
-			if (args.action === "run" && args.command) {
-				const prefix = args.name ? theme.fg("text", `${args.name}: `) : "";
-				text += `\n  ${prefix}${theme.fg("muted", args.command)}`;
-			} else if (args.action === "attach" && args.mode && args.mode !== "split-vertical") {
-				text += theme.fg("muted", ` (${args.mode})`);
-			} else if (args.action === "peek" && args.window !== undefined) {
-				text += theme.fg("muted", ` :${args.window}`);
+			text += theme.fg("accent", call.action ?? "tmux");
+			if (call.action === "run" && call.command) {
+				const prefix = call.name ? theme.fg("text", `${call.name}: `) : "";
+				text += `\n  ${prefix}${theme.fg("muted", call.command)}`;
+			} else if (call.action === "attach" && call.mode && call.mode !== "split-vertical") {
+				text += theme.fg("muted", ` (${call.mode})`);
+			} else if (call.action === "peek" && call.window !== undefined) {
+				text += theme.fg("muted", ` :${call.window}`);
 			}
 			return new Text(text, 0, 0);
 		},

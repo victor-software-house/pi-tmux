@@ -9,7 +9,7 @@
  * Dynamic fields (hostSessionName) are detected once per pi session
  * and cached in-memory — never persisted (they go stale across sessions).
  */
-import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { deriveSessionName, deriveStagingName, isSessionAlive, resolveProjectRoot, tryRun } from "./session.js";
 
 /** The read-only session manager exposed via ExtensionContext. */

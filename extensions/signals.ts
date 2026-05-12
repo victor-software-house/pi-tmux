@@ -11,7 +11,7 @@
  * All tracking is pane-ID-based (tmux mode only). Legacy window-index-based
  * tracking has been removed.
  */
-import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { CompletionDelivery, SilenceConfig } from "./types.js";
 import { run, tryRun, tmuxEscape, tmuxSessionTarget } from "./session.js";
 

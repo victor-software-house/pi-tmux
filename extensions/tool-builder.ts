@@ -3,13 +3,17 @@
  * guidelines based on current feature flags. Every section is conditional so
  * disabled behaviours produce zero tokens.
  */
-import { Type } from "@sinclair/typebox";
-import { StringEnum } from "@mariozechner/pi-ai";
+import { Type, type TSchema } from "@sinclair/typebox";
 import type { FeatureFlags } from "./types.js";
 import { when } from "./settings.js";
 
 export function buildActions(flags: FeatureFlags): string[] {
 	return ["run", ...when(flags.canAttach, "attach"), "focus", "close", "peek", "list", "kill", ...when(flags.canMute, "mute")];
+}
+
+function buildActionSchema(actions: string[]) {
+	const literals = actions.map((action) => Type.Literal(action)) as unknown as [TSchema, ...TSchema[]];
+	return Type.Union(literals);
 }
 
 export function buildParams(flags: FeatureFlags) {
@@ -21,7 +25,7 @@ export function buildParams(flags: FeatureFlags) {
 				: "Logical pane name for 'run'. In fresh mode, omitting it reuses the last idle pane automatically. In resume mode, a matching name targets an existing pane.";
 
 	return Type.Object({
-		action: StringEnum(buildActions(flags) as [string, ...string[]]),
+		action: buildActionSchema(buildActions(flags)),
 
 		// run params
 		command: Type.Optional(Type.String({ description: "Command to run (for 'run' action)." })),
