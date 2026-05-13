@@ -8,6 +8,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
+import { isTmux } from "@victor-software-house/pi-terminal-env";
 import type { AttachLayout, ShellMode, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
 import { hasAttachedPane, checkTmuxEnvironment } from "./terminal-tmux.js";
@@ -72,7 +73,7 @@ function registerOutsideTmuxGate(pi: ExtensionAPI): void {
 }
 
 export default function (pi: ExtensionAPI) {
-	if (!process.env.TMUX) {
+	if (!isTmux()) {
 		registerOutsideTmuxGate(pi);
 		return;
 	}

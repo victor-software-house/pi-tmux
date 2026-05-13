@@ -4,6 +4,7 @@
  * Uses it2api for iTerm2 integration (create-tab, get-prompt, send-text).
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { isIterm2, isTmux } from "@victor-software-house/pi-terminal-env";
 import { resolveProjectRoot, tryRun, tmuxSessionTarget } from "./session.js";
 import { getOrCreateBinding } from "./state.js";
 
@@ -27,7 +28,12 @@ function getActiveiTermSession(): string | null {
 }
 
 export function registerPromoteCommand(pi: ExtensionAPI): void {
-	if (process.env.TMUX) return;
+	// Already in tmux: nothing to promote.
+	if (isTmux()) return;
+	// Promote path uses iTerm2 it2api (create-tab, get-prompt, send-text).
+	// Skip the command entirely on non-iTerm2 hosts so /tmux-promote does not
+	// appear and fail downstream when run from Ghostty, Terminal.app, etc.
+	if (!isIterm2()) return;
 
 	const piSessionId = getActiveiTermSession();
 

@@ -66,5 +66,8 @@
   },
   "pnpm": {
     "autoInstallPeers": false
+  },
+  "dependencies": {
+    "@victor-software-house/pi-terminal-env": "^0.1.3"
   }
 }
