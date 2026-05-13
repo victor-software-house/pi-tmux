@@ -8,7 +8,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
-import { isTmux } from "@victor-software-house/pi-terminal-env";
+import { isCmux, isTmux } from "@victor-software-house/pi-terminal-env";
 import type { AttachLayout, ShellMode, SilenceConfig } from "./types.js";
 import { loadSettings, getFlags } from "./settings.js";
 import { hasAttachedPane, checkTmuxEnvironment } from "./terminal-tmux.js";
@@ -73,6 +73,13 @@ function registerOutsideTmuxGate(pi: ExtensionAPI): void {
 }
 
 export default function (pi: ExtensionAPI) {
+	// cmux is itself a Ghostty-based multiplexer with its own pane model,
+	// notification rings, and surface lifecycle. Operators inside cmux do
+	// not need pi-tmux's CC-mode plumbing; routing them through tmux would
+	// double-multiplex with nothing to gain. Hard short-circuit here — no
+	// /tmux-promote registration, no warning notify, no stub tool.
+	if (isCmux()) return;
+
 	if (!isTmux()) {
 		registerOutsideTmuxGate(pi);
 		return;
