@@ -4,6 +4,8 @@
 
 A Pi extension that provides a `tmux` tool for running and managing long-running commands in tmux sessions. Designed for iTerm2 CC (control mode) where Pi runs inside a tmux session.
 
+**Inside cmux**, this extension is a no-op (`isCmux()` short-circuit in `extensions/index.ts` line ~76, shipped in 1.3.3+). The equivalent agentic surface inside cmux is owned by `@victor-software-house/pi-cmux`'s `cmux` model tool — see PRD-002 in that repo. The two never co-register meaningful tools inside the same session; the boundary is documented in pi-cmux ADR-007.
+
 ## Architecture
 
 Two tmux sessions:
