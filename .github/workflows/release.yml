@@ -12,7 +12,7 @@ permissions:
 jobs:
   release:
     name: Build, verify, publish
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, X64, vps]
     env:
       NODE_AUTH_TOKEN: ${{ secrets.GH_PACKAGES_TOKEN }}
 
